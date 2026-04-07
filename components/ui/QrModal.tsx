@@ -6,7 +6,7 @@ interface QrModalProps {
 
 const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
     // URL actualizada para el despliegue en Cloud Run
-    const appUrl = "https://asistente-m-dico-con-analizador-para-internos-web-788092376733.us-west1.run.app/";
+    const appUrl = "https://asistente-medico-20.vercel.app/";
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${appUrl}`;
 
     useEffect(() => {
