@@ -2,26 +2,51 @@ import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai"
 import { QuizQuestion, ClinicalCase, LabResult, ImagingResult, GroundingSource } from '../types';
 
 function getAi(): GoogleGenAI {
-    // CRITICAL: Use process.env.API_KEY (from selection dialog) or fallback to GEMINI_API_KEY.
-    // Create a new instance every time to ensure the latest API key is used.
-    let apiKey = (typeof process !== 'undefined' ? (process.env.API_KEY || process.env.GEMINI_API_KEY) : null) || (import.meta as any).env?.VITE_GEMINI_API_KEY;
-    
-    // Handle cases where Vite define might have stringified 'undefined'
-    if (apiKey === 'undefined') apiKey = null;
+    let apiKey = '';
 
-    if (!apiKey) {
-        console.warn("API Key not found. Please ensure GEMINI_API_KEY is set in environment variables.");
+    // 1. Prioridad 1: Clave ingresada por el usuario en localStorage
+    if (typeof localStorage !== 'undefined') {
+        const storedKey = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('API_KEY');
+        if (storedKey && storedKey.trim() !== '') {
+            apiKey = storedKey.trim();
+        }
     }
-    
-    return new GoogleGenAI({ apiKey: apiKey || '' });
+
+    // 2. Prioridad 2: Variable inyectada en window
+    if (!apiKey && typeof window !== 'undefined' && (window as any).GEMINI_API_KEY) {
+        apiKey = (window as any).GEMINI_API_KEY;
+    }
+
+    // 3. Prioridad 3: Variable de entorno de Vite (.env.local)
+    if (!apiKey && typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) {
+        apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
+    }
+
+    // 4. Prioridad 4: process.env (Node / Vercel)
+    if (!apiKey && typeof process !== 'undefined' && process.env) {
+        const pKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
+        if (pKey && pKey !== 'undefined' && pKey !== 'null') {
+            apiKey = pKey;
+        }
+    }
+
+    if (apiKey === 'undefined' || apiKey === 'null' || !apiKey) {
+        apiKey = '';
+    }
+
+    return new GoogleGenAI({ apiKey });
 }
 
 // Helper function for robust JSON parsing
 function safeJsonParse(jsonString: string): any {
     try {
-        const trimmedString = jsonString.trim();
+        let trimmedString = jsonString.trim();
         if (!trimmedString) {
             throw new Error("Received empty response from the AI model.");
+        }
+        // Clean markdown code fence if present
+        if (trimmedString.startsWith('```')) {
+            trimmedString = trimmedString.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
         }
         return JSON.parse(trimmedString);
     } catch (e: any) {
@@ -101,24 +126,61 @@ export async function generateClinicalCase(topic: string, difficulty: string): P
     return safeJsonParse(response.text || '');
 }
 
-export async function getAnamnesisFeedback(clinicalCase: ClinicalCase, history: any[], userQuestion: string): Promise<{ patientResponse: string, tutorFeedback: string }> {
-    const prompt = `Eres un simulador de paciente y tutor médico. CASO CLÍNICO: ${JSON.stringify(clinicalCase)} HISTORIAL DE ANAMNESIS: ${JSON.stringify(history)} PREGUNTA DEL INTERNO: "${userQuestion}" TAREA: 1. Como PACIENTE, responde la pregunta de manera realista. 2. Como TUTOR, da una retroalimentación concisa sobre la pregunta del interno. Responde únicamente con un objeto JSON.`;
-    
-    const response = await getAi().models.generateContent({
-        model: 'gemini-3.1-flash-lite-preview',
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: Type.OBJECT, properties: {
-                    patientResponse: { type: Type.STRING },
-                    tutorFeedback: { type: Type.STRING }
-                },
-                required: ['patientResponse', 'tutorFeedback']
-            }
-        }
-    });
-    return safeJsonParse(response.text || '');
+export async function getAnamnesisFeedback(
+  clinicalCase: ClinicalCase, 
+  history: any[], 
+  userQuestion: string
+): Promise<{ patientResponse: string, tutorFeedback: string }> {
+  
+  const prompt = `
+Eres un simulador dual: actúas como un PACIENTE real y como un TUTOR MÉDICO docente de alta exigencia para internos de pregrado.
+
+INFORMACIÓN DEL CASO DE REFERENCIA (ESTRICTAMENTE PRIVADA):
+${JSON.stringify(clinicalCase)}
+
+HISTORIAL DE LA ANAMNESIS HASTA EL MOMENTO:
+${JSON.stringify(history)}
+
+PREGUNTA ACTUAL DEL INTERNO: 
+"${userQuestion}"
+
+---
+REGLAS DE ORO OBLIGATORIAS DE SEGURIDAD CLÍNICA (TUTOR Y PACIENTE):
+1. PROHIBICIÓN ABSOLUTA DE REVELAR EL DIAGNÓSTICO: Como Tutor o Paciente, ¡NUNCA dejes caer el nombre de la enfermedad, patología, diagnóstico definitivo o sospecha principal! Tampoco uses sinónimos evidentes. El estudiante debe descubrirlo por sí mismo en la fase final de la simulación.
+2. LIMITACIÓN DE CONOCIMIENTO DEL PACIENTE: Como Paciente, responde de manera realista, con lenguaje coloquial y subjetivo. Tú no sabes qué enfermedad tienes, solo sabes lo que te duele, cuándo empezó, qué lo alivia o empeora, y tus antecedentes personales si te los preguntan.
+3. REACCIÓN ANTE "ADIVINACIONES": Si el interno te hace una pregunta directa adivinando el diagnóstico (ej. "¿Usted tiene un infarto?" o "¿No será una apendicitis?"):
+   - El PACIENTE responderá con confusión: "No lo sé doctor, a mí solo me duele aquí...".
+   - El TUTOR le llamará la atención constructivamente por intentar adivinar antes de completar la anamnesis y exploración: "Recuerda que no debemos saltar a conclusiones diagnósticas sin haber caracterizado adecuadamente los síntomas primero. Enfócate en interrogar la semiología del dolor."
+
+---
+TAREA DE RESPUESTA:
+1. PACIENTE: Responde la pregunta actual de forma coherente con tu caso clínico y el historial clínico acumulado.
+2. TUTOR: Evalúa críticamente la PREGUNTA DEL INTERNO. Tu feedback debe limitarse estrictamente a:
+   - Evaluar si la pregunta es clínicamente pertinente o si es redundante.
+   - Evaluar la técnica de comunicación (ej. si usó preguntas abiertas/cerradas, o si caracterizó correctamente el dolor usando nemotecnias como ALICIA).
+   - Sugerir áreas de exploración semiológica que el interno está olvidando (ej. "Excelente pregunta sobre el dolor, pero recuerda indagar también sobre síntomas acompañantes como náuseas o diaforesis" o "Buen avance, pero no olvides preguntar por los antecedentes heredofamiliares o hábitos de riesgo").
+   - Mantén un tono docente, firme pero empático.
+
+Responde únicamente con un objeto JSON estructurado con las propiedades 'patientResponse' y 'tutorFeedback'.
+`;
+
+  const response = await getAi().models.generateContent({
+    model: 'gemini-3.1-flash-lite-preview',
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          patientResponse: { type: Type.STRING },
+          tutorFeedback: { type: Type.STRING }
+        },
+        required: ['patientResponse', 'tutorFeedback']
+      }
+    }
+  });
+
+  return safeJsonParse(response.text || '');
 }
 
 export async function getSuggestedStudies(clinicalCase: ClinicalCase): Promise<{ suggestedLabs: string[], suggestedImaging: string[] }> {
@@ -141,7 +203,19 @@ export async function getSuggestedStudies(clinicalCase: ClinicalCase): Promise<{
 }
 
 export async function generateStudyResults(fullCaseContext: string, requestedStudies: { labs: string[], imaging: string[] }): Promise<{ labs: LabResult[], imaging: ImagingResult[] }> {
-    const prompt = `Basado en el caso clínico: ${fullCaseContext}, genera resultados para los estudios: Labs [${requestedStudies.labs.join(', ')}], Imagen [${requestedStudies.imaging.join(', ')}]. Para laboratorios, proporciona una interpretación clínica y un arreglo 'components' con 'parameter', 'value', 'units', 'referenceRange', y 'isAbnormal'. Para imagen, proporciona 'findings' detallados.`;
+    if ((!requestedStudies.labs || requestedStudies.labs.length === 0) && (!requestedStudies.imaging || requestedStudies.imaging.length === 0)) {
+        return { labs: [], imaging: [] };
+    }
+
+    const prompt = `Basado en el contexto clínico: ${fullCaseContext}
+    
+    Genera resultados clínicamente coherentes y realistas para los siguientes estudios solicitados:
+    - Laboratorios: [${requestedStudies.labs?.join(', ') || 'Ninguno'}]
+    - Imagen: [${requestedStudies.imaging?.join(', ') || 'Ninguna'}]
+    
+    Para cada estudio de laboratorio ('labs'), incluye el nombre ('study'), una interpretación médica clínica ('interpretation') y un arreglo 'components' con sus parámetros ('parameter'), valores numéricos o cualitativos ('value'), unidades ('units'), rango de referencia ('referenceRange') y si está alterado ('isAbnormal').
+    Para cada estudio de imagen ('imaging'), incluye el nombre ('study') y el informe descriptivo detallado de los hallazgos radiológicos ('findings').`;
+
     const response = await getAi().models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -249,25 +323,33 @@ export async function editImage(prompt: string, base64ImageData: string, mimeTyp
 export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text: string, sources: GroundingSource[] }> {
     const prompt = `Basado en la siguiente información clínica completa: ${fullCaseContext}
 
-    Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza los siguientes encabezados exactamente como se indican y en este orden:
+    Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada (Guías de Práctica Clínica, PubMed, UpToDate).
+
+    REGLAS DE CITACIÓN Y GROUNDING:
+    - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3] dentro del texto redactado, especialmente en la sección de 'Fisiopatología y Correlación Clínica' y en el 'Plan de Manejo y Tratamiento', para respaldar afirmaciones fisiopatológicas, esquemas farmacológicos y recomendaciones de guías clínicas.
+    - Cada número [n] debe coincidir con el orden de las fuentes y referencias consultadas.
+
+    Utiliza los siguientes encabezados exactamente como se indican y en este orden:
 
     ### Diagnóstico Principal
     Establece el diagnóstico más probable de forma clara y concisa.
 
     ### Fisiopatología y Correlación Clínica
-    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita. Por ejemplo: "La fiebre se debe a la liberación de citoquinas pro-inflamatorias como IL-1 y TNF-alfa en respuesta a...", "La leucocitosis con neutrofilia observada en la biometría hemática refleja la respuesta del sistema inmune a...". El objetivo es que el estudiante integre el porqué de cada manifestación.
+    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita (ej. "...liberación de citoquinas pro-inflamatorias como IL-1 y TNF-alfa [1]", "...leucocitosis reactiva observada en la biometría hemática [2]"). Incluye citas numéricas [1], [2] correspondientes a las fuentes de evidencia.
 
     ### Plan de Manejo y Tratamiento
-    Detalla el plan de manejo inicial y el tratamiento específico para el diagnóstico principal. Basa tus recomendaciones en Guías de Práctica Clínica (GPC) actualizadas y en la medicina basada en evidencia. Sé específico en cuanto a fármacos, dosis y medidas de soporte.
+    Detalla el plan de manejo inicial y el tratamiento específico para el diagnóstico principal. Basa tus recomendaciones en Guías de Práctica Clínica (GPC) actualizadas y en la medicina basada en evidencia. Sé específico en cuanto a fármacos, dosis y medidas de soporte, incluyendo citas numéricas [1], [2] para las guías de referencia utilizadas.
 
     ### Diagnósticos Diferenciales
     Al final, enumera al menos 2 diagnósticos diferenciales importantes que se consideraron. Para cada uno, explica brevemente por qué es menos probable que el diagnóstico principal en este caso específico.
     
     ### Fuentes de Información
-    Al final de todo, busca y proporciona al menos 2 fuentes de alta calidad (Guías de Práctica Clínica, artículos de revisión de PubMed, UpToDate, etc.) que respalden el diagnóstico y manejo. Formatea cada fuente como: "- [Título del artículo o guía](URL directa)".`;
+    Al final de todo, enumera de forma ordenada y numerada al menos 2 fuentes de alta calidad que respalden el diagnóstico y manejo, coincidiendo con los números de cita del texto:
+    - [1] [Título del artículo o guía clínica](URL directa)
+    - [2] [Título del artículo o guía clínica](URL directa)`;
 
     const response = await getAi().models.generateContent({
-        // FIX: Updated model to gemini-3.1-pro-preview for complex text tasks per guidelines.
+        // Updated model to gemini-3.1-pro-preview for complex text tasks per guidelines.
         model: 'gemini-3.1-pro-preview',
         contents: prompt,
         config: {
@@ -276,10 +358,34 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     });
 
     const text = response.text || '';
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+    const rawSources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
         ?.map(chunk => chunk.web)
-        .filter((web): web is GroundingSource => web !== undefined && web.uri !== undefined && web.uri !== '') || [];
+        .filter((web): web is GroundingSource => Boolean(web && web.uri && web.uri.trim() !== '')) || [];
         
+    // Deduplicate sources by URI while preserving order
+    const seenUris = new Set<string>();
+    const sources: GroundingSource[] = [];
+    for (const source of rawSources) {
+        if (!seenUris.has(source.uri)) {
+            seenUris.add(source.uri);
+            sources.push(source);
+        }
+    }
+
+    // Fallback: if groundingChunks didn't return sources, extract markdown links from text
+    if (sources.length === 0 && text) {
+        const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+        let match;
+        while ((match = linkRegex.exec(text)) !== null) {
+            const title = match[1];
+            const uri = match[2];
+            if (!seenUris.has(uri)) {
+                seenUris.add(uri);
+                sources.push({ title, uri });
+            }
+        }
+    }
+
     return { text, sources };
 }
 

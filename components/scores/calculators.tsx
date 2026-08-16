@@ -1562,6 +1562,106 @@ const DepressionScales: FC = () => {
 };
 
 
+const AlvaradoScore: FC = () => {
+    const [criteria, setCriteria] = useState<Record<string, boolean>>({});
+
+    const score = useMemo(() => {
+        let total = 0;
+        if (criteria.migratoryPain) total += 1;
+        if (criteria.anorexia) total += 1;
+        if (criteria.nausea) total += 1;
+        if (criteria.rLowerQuadrant) total += 2;
+        if (criteria.rebound) total += 1;
+        if (criteria.fever) total += 1;
+        if (criteria.leukocytosis) total += 2;
+        if (criteria.leftShift) total += 1;
+        return total;
+    }, [criteria]);
+
+    const interpretation = useMemo(() => {
+        if (score <= 3) return "Riesgo Bajo de apendicitis. Poco probable, considerar otros diagnósticos.";
+        if (score <= 6) return "Riesgo Intermedio. Requiere observación activa y estudios complementarios (USG/TAC).";
+        if (score <= 8) return "Riesgo Alto de apendicitis. Considerar valoración quirúrgica.";
+        return "Diagnóstico muy probable de apendicitis. Indicación quirúrgica.";
+    }, [score]);
+
+    const alertLevel = score >= 7 ? 'critical' as const : score >= 4 ? 'warning' as const : 'none' as const;
+
+    const handleChange = (key: string, checked: boolean) => {
+        setCriteria(prev => ({ ...prev, [key]: checked }));
+    };
+
+    const reset = () => setCriteria({});
+
+    return (
+        <div className="space-y-3 text-sm">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Escala de 10 puntos para evaluar la probabilidad clínica de apendicitis aguda. Acrónimo: MANTRELS.</p>
+            <SubSection title="Síntomas (3 pts)">
+                <div className="space-y-1">
+                    <Checkbox checked={!!criteria.migratoryPain} onChange={e => handleChange('migratoryPain', e.target.checked)}>Dolor migratorio a FID (1 pt)</Checkbox>
+                    <Checkbox checked={!!criteria.anorexia} onChange={e => handleChange('anorexia', e.target.checked)}>Anorexia (1 pt)</Checkbox>
+                    <Checkbox checked={!!criteria.nausea} onChange={e => handleChange('nausea', e.target.checked)}>Náusea / Vómito (1 pt)</Checkbox>
+                </div>
+            </SubSection>
+            <SubSection title="Signos (3 pts)">
+                <div className="space-y-1">
+                    <Checkbox checked={!!criteria.rLowerQuadrant} onChange={e => handleChange('rLowerQuadrant', e.target.checked)}>Dolor a la palpación en FID (2 pts)</Checkbox>
+                    <Checkbox checked={!!criteria.rebound} onChange={e => handleChange('rebound', e.target.checked)}>Rebote / Blumberg positivo (1 pt)</Checkbox>
+                    <Checkbox checked={!!criteria.fever} onChange={e => handleChange('fever', e.target.checked)}>Temperatura ≥ 37.3°C (1 pt)</Checkbox>
+                </div>
+            </SubSection>
+            <SubSection title="Laboratorio (3 pts)">
+                <div className="space-y-1">
+                    <Checkbox checked={!!criteria.leukocytosis} onChange={e => handleChange('leukocytosis', e.target.checked)}>Leucocitosis {'>'} 10,000/mm³ (2 pts)</Checkbox>
+                    <Checkbox checked={!!criteria.leftShift} onChange={e => handleChange('leftShift', e.target.checked)}>Desviación a la izquierda (neutrofilia {'>'} 75%) (1 pt)</Checkbox>
+                </div>
+            </SubSection>
+            <ResultDisplay title="Score de Alvarado" result={`${score} / 10`} interpretation={interpretation} alertLevel={alertLevel} />
+            <div className="text-center"><ResetButton onClick={reset} /></div>
+        </div>
+    );
+};
+
+const MeanArterialPressure: FC = () => {
+    const [systolic, setSystolic] = useState(120);
+    const [diastolic, setDiastolic] = useState(80);
+
+    const map = useMemo(() => {
+        return diastolic + ((systolic - diastolic) / 3);
+    }, [systolic, diastolic]);
+
+    const interpretation = useMemo(() => {
+        if (map < 60) return "PAM &lt; 60 mmHg: Hipoperfusi\u00f3n org\u00e1nica. Riesgo de da\u00f1o isqu\u00e9mico. Considerar vasopresores y reanimaci\u00f3n agresiva.";
+        if (map < 65) return "PAM 60-65 mmHg: L\u00edmite inferior. Considerar intervenci\u00f3n en pacientes s\u00e9pticos o cr\u00edticos.";
+        if (map <= 110) return "PAM en rango normal (65-110 mmHg). Perfusi\u00f3n org\u00e1nica adecuada.";
+        return "PAM &gt; 110 mmHg: Hipertensi\u00f3n arterial. Evaluar da\u00f1o a \u00f3rgano blanco.";
+    }, [map]);
+
+    const alertLevel = map < 60 ? 'critical' as const : map < 65 ? 'warning' as const : map > 110 ? 'warning' as const : 'none' as const;
+
+    const reset = () => { setSystolic(120); setDiastolic(80); };
+
+    return (
+        <div className="space-y-3">
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Calcula la presión arterial media usando la fórmula: PAM = PAD + (PAS − PAD) / 3. Meta en sepsis: ≥ 65 mmHg.</p>
+            <FormRow>
+                <Label htmlFor="map-sys">Presión Arterial Sistólica (mmHg)</Label>
+                <Input id="map-sys" type="number" value={systolic} onChange={e => setSystolic(Number(e.target.value))} min={0} max={300} />
+            </FormRow>
+            <FormRow>
+                <Label htmlFor="map-dia">Presión Arterial Diastólica (mmHg)</Label>
+                <Input id="map-dia" type="number" value={diastolic} onChange={e => setDiastolic(Number(e.target.value))} min={0} max={200} />
+            </FormRow>
+            <ResultDisplay title="Presión Arterial Media (PAM)" result={`${map.toFixed(1)} mmHg`} interpretation={interpretation} alertLevel={alertLevel} />
+            <div className="mt-3 p-3 bg-gray-50 dark:bg-slate-800/50 rounded-lg border-2 border-gray-200 dark:border-slate-700">
+                <h5 className="font-semibold text-gray-800 dark:text-gray-200 text-sm">Fórmula</h5>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">PAM = {diastolic} + ({systolic} − {diastolic}) / 3 = {map.toFixed(1)} mmHg</p>
+            </div>
+            <div className="text-center"><ResetButton onClick={reset} /></div>
+        </div>
+    );
+};
+
 // --- Calculator Definitions ---
 export const calculators = [
     { id: 'gcs', name: 'Escala de Coma de Glasgow (GCS)', category: 'Cuidados Críticos', description: 'Evalúa el nivel de conciencia y daño neurológico.', component: GlasgowComaScale },
@@ -1578,6 +1678,7 @@ export const calculators = [
     { id: 'west-haven', name: 'Clasificación de West Haven', category: 'Gastroenterología', description: 'Evalúa el grado de Encefalopatía Hepática.', component: WestHavenClassification },
     { id: 'glasgow-blatchford', name: 'Escala de Glasgow-Blatchford', category: 'Gastroenterología', description: 'Predice la necesidad de intervención en hemorragia digestiva alta.', component: GlasgowBlatchfordScore },
     { id: 'air-score', name: 'Score AIR (Appendicitis Inflammatory Response)', category: 'Gastroenterología', description: 'Estratifica el riesgo de apendicitis aguda.', component: AIRScore },
+    { id: 'alvarado', name: 'Escala de Alvarado (MANTRELS)', category: 'Gastroenterología', description: 'Evalúa la probabilidad clínica de apendicitis aguda.', component: AlvaradoScore },
     { id: 'renal-function', name: 'Función Renal (Cockcroft-Gault / CKD-EPI)', category: 'Nefrología / Farmacología', description: 'Estima la TFG para evaluar la función renal y ajustar fármacos.', component: RenalFunctionCalculators },
     { id: 'apgar', name: 'Score de APGAR', category: 'Neonatología', description: 'Evaluación de la vitalidad del recién nacido.', component: ApgarScore },
     { id: 'silverman', name: 'Score de Silverman-Anderson', category: 'Neonatología', description: 'Evalúa la dificultad respiratoria en neonatos.', component: SilvermanAndersonScore },
@@ -1587,6 +1688,7 @@ export const calculators = [
     { id: 'acid-base', name: 'Anion Gap y Fórmula de Winter', category: 'Medicina Interna', description: 'Herramientas para el análisis de trastornos ácido-base.', component: AnionGapWintersFormula },
     { id: 'deficit', name: 'Déficit de Agua/Sodio', category: 'Medicina Interna', description: 'Guía la corrección de trastornos del sodio.', component: WaterSodiumDeficit },
     { id: 'chadsvasc', name: 'Score CHADS₂-VASc', category: 'Cardiología', description: 'Calcula el riesgo de ictus en pacientes con Fibrilación Auricular.', component: ChadsvascScore },
+    { id: 'map-calculator', name: 'Presión Arterial Media (PAM)', category: 'Cardiología', description: 'Calcula la PAM a partir de la presión sistólica y diastólica.', component: MeanArterialPressure },
     { id: 'norton', name: 'Escalas de Norton y Braden', category: 'Prevención', description: 'Evalúa el riesgo de desarrollar úlceras por presión.', component: NortonBradenScales },
     { id: 'depression', name: 'Escalas de Depresión (Beck / Hamilton)', category: 'Prevención', description: 'Mide la gravedad de la sintomatología depresiva.', component: DepressionScales },
 ];

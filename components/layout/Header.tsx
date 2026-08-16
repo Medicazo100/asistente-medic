@@ -35,12 +35,11 @@ const Header: React.FC<HeaderProps> = ({ onNavigateHome, onToggleSidebar }) => {
                                 e.stopPropagation();
                                 setShowDisclaimer(true);
                             }}
-                            className="text-3xl hover:scale-110 transition-transform cursor-help" 
-                            role="img" 
+                            className="hover:scale-105 transition-transform cursor-help flex-shrink-0" 
                             aria-label="Aviso Legal Médico"
                             title="Ver Aviso Legal"
                          >
-                            ⚕️
+                            <img src="/icon-192.png" alt="Logo Asistente Médico" className="w-9 h-9 rounded-xl shadow-md object-cover border border-white/20" />
                          </button>
                         <div>
                             <h1 className="text-xl font-bold">Asistente Médico</h1>

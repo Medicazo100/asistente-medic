@@ -4,6 +4,10 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import './index.css';
+import { registerSW } from 'virtual:pwa-register';
+
+// Registro silencioso en segundo plano sin botones ni alertas
+registerSW({ immediate: true });
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -18,3 +22,4 @@ root.render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+

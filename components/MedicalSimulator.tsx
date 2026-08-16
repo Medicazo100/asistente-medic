@@ -33,8 +33,17 @@ const MedicalSimulator: React.FC = () => {
     const [selectedStudies, setSelectedStudies] = useLocalStorage<{ labs: string[], imaging: string[] }>('sim_selectedStudies', { labs: [], imaging: [] });
     const [allAvailableStudies, setAllAvailableStudies] = useLocalStorage<{ labs: string[], imaging: string[] }>('sim_availableStudies', { labs: [], imaging: [] });
 
+    // Dynamic Preloading Buffers (100% dinámico por cada caso clínico generado)
+    const [dynamicLabsBuffer, setDynamicLabsBuffer] = useLocalStorage<LabResult[]>('sim_dynLabsBuffer', []);
+    const [dynamicImagingBuffer, setDynamicImagingBuffer] = useLocalStorage<ImagingResult[]>('sim_dynImagingBuffer', []);
+
+    // Final Diagnosis Preloading Buffer & Status
+    const [preloadedDiagnosis, setPreloadedDiagnosis] = useLocalStorage<{text: string, sources: GroundingSource[]} | null>('sim_preloadedDiagnosis', null);
+    const [isPrefetchingDiagnosis, setIsPrefetchingDiagnosis] = useState(false);
+
     // Transient State (UI only)
     const [isLoading, setIsLoading] = useState(false);
+    const [isBufferingStudies, setIsBufferingStudies] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [userQuestion, setUserQuestion] = useState('');
     const [customLab, setCustomLab] = useState('');
@@ -43,19 +52,144 @@ const MedicalSimulator: React.FC = () => {
 
     const anamnesisEndRef = useRef<HTMLDivElement>(null);
     const resultsEndRef = useRef<HTMLDivElement>(null);
+    const backgroundPipelinePromiseRef = useRef<Promise<{ labs: LabResult[], imaging: ImagingResult[] }> | null>(null);
+    const prefetchingDiagnosisPromiseRef = useRef<Promise<{text: string, sources: GroundingSource[]}> | null>(null);
 
     useEffect(() => {
         if (labResults.length > 0 || imagingResults.length > 0) {
              setTimeout(() => resultsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         }
     }, [labResults, imagingResults]);
+
+    // Función para orquestar la generación dinámica en segundo plano (Fases A, B y C)
+    const startBackgroundStudyPipeline = (caseData: ClinicalCase) => {
+        setIsBufferingStudies(true);
+
+        const pipelinePromise = (async () => {
+            try {
+                // Fase A: Obtener sugerencias de estudios específicas para este caso clínico único
+                const suggestions = await getSuggestedStudies(caseData);
+                const suggestedLabs = suggestions.suggestedLabs || [];
+                const suggestedImaging = suggestions.suggestedImaging || [];
+                
+                setAllAvailableStudies({
+                    labs: suggestedLabs,
+                    imaging: suggestedImaging
+                });
+
+                // Fase B: Disparar inmediatamente la generación de resultados de estudios en segundo plano
+                const caseContext = `Caso: ${caseData.caseTitle}. Paciente: ${caseData.patientProfile}. Padecimiento: ${caseData.historyOfPresentIllness}. Signos Vitales: ${JSON.stringify(caseData.vitalSigns)}. Examen Físico: ${caseData.physicalExam}`;
+                const studyResults = await generateStudyResults(caseContext, {
+                    labs: suggestedLabs,
+                    imaging: suggestedImaging
+                });
+
+                // Fase C: Guardar los resultados generados dinámicamente en los buffers
+                if (studyResults.labs && studyResults.labs.length > 0) {
+                    setDynamicLabsBuffer(prev => {
+                        const existingNames = new Set(prev.map(l => l.study.toLowerCase().trim()));
+                        const filteredNew = studyResults.labs.filter(l => !existingNames.has(l.study.toLowerCase().trim()));
+                        return [...prev, ...filteredNew];
+                    });
+                }
+
+                if (studyResults.imaging && studyResults.imaging.length > 0) {
+                    setDynamicImagingBuffer(prev => {
+                        const existingNames = new Set(prev.map(i => i.study.toLowerCase().trim()));
+                        const filteredNew = studyResults.imaging.filter(i => !existingNames.has(i.study.toLowerCase().trim()));
+                        return [...prev, ...filteredNew];
+                    });
+                }
+
+                return studyResults;
+            } catch (err) {
+                console.error("Error en la canalización en segundo plano de estudios:", err);
+                throw err;
+            } finally {
+                setIsBufferingStudies(false);
+            }
+        })();
+
+        backgroundPipelinePromiseRef.current = pipelinePromise;
+        return pipelinePromise;
+    };
+
+    // Precarga automática en segundo plano si se restaura el estado en el paso 1 o 2 sin buffers
+    useEffect(() => {
+        if (
+            (step === 1 || step === 2) && 
+            clinicalCase && 
+            dynamicLabsBuffer.length === 0 && 
+            dynamicImagingBuffer.length === 0 && 
+            !backgroundPipelinePromiseRef.current
+        ) {
+            startBackgroundStudyPipeline(clinicalCase);
+        }
+    }, [step, clinicalCase, dynamicLabsBuffer.length, dynamicImagingBuffer.length]);
+
+    const getFullCaseSummaryForDiagnosis = () => {
+        if (!clinicalCase) return '';
+        const vitalSignsLabels: {[key: string]: string} = { presionArterial: 'Presión Arterial', frecuenciaCardiaca: 'Frecuencia Cardiaca', frecuenciaRespiratoria: 'Frecuencia Respiratoria', temperatura: 'Temperatura', saturacionOxigeno: 'Saturación de Oxígeno' };
+        let summary = `**CASO CLÍNICO INICIAL**\n- Título: ${clinicalCase.caseTitle}\n- Perfil: ${clinicalCase.patientProfile}\n- Padecimiento: ${clinicalCase.historyOfPresentIllness}\n- Signos Vitales:\n${Object.entries(clinicalCase.vitalSigns).map(([k, v]) => `  - ${vitalSignsLabels[k] || k}: ${v}`).join('\n')}\n- Examen Físico: ${clinicalCase.physicalExam}\n\n`;
+        summary += `**ANAMNESIS DIRIGIDA**\n${anamnesisHistory.length > 0 ? anamnesisHistory.map(t => `- Médico: ${t.question}\n- Paciente: ${t.patientResponse}\n`).join('\n') : 'No se realizó anamnesis adicional.\n'}\n`;
+        summary += `**RESULTADOS DE ESTUDIOS**\nLaboratorios:\n${labResults.length > 0 ? labResults.map(l => `- ${l.study}: ${l.interpretation}\n`).join('') : 'No se solicitaron.\n'}\nImagen:\n${imagingResults.length > 0 ? imagingResults.map(i => `- ${i.study}: ${i.findings}\n`).join('') : 'No se solicitaron.\n'}`;
+        return summary;
+    };
+
+    // DISPARADOR ASÍNCRONO EN SEGUNDO PLANO: Precarga del Diagnóstico Final al tener estudios disponibles en step 2
+    useEffect(() => {
+        const shouldPrefetch = 
+            step === 2 && 
+            Boolean(clinicalCase) && 
+            (labResults.length > 0 || imagingResults.length > 0) && 
+            !isPrefetchingDiagnosis && 
+            !preloadedDiagnosis && 
+            !prefetchingDiagnosisPromiseRef.current;
+
+        if (shouldPrefetch) {
+            const fullContext = getFullCaseSummaryForDiagnosis();
+            if (!fullContext) return;
+
+            setIsPrefetchingDiagnosis(true);
+            const promise = (async () => {
+                try {
+                    const diagnosisData = await getFinalDiagnosis(fullContext);
+                    setPreloadedDiagnosis(diagnosisData);
+                    return diagnosisData;
+                } catch (err) {
+                    console.error("Error en la precarga del diagnóstico en segundo plano:", err);
+                    throw err;
+                } finally {
+                    setIsPrefetchingDiagnosis(false);
+                }
+            })();
+
+            prefetchingDiagnosisPromiseRef.current = promise;
+        }
+    }, [step, clinicalCase, labResults, imagingResults, isPrefetchingDiagnosis, preloadedDiagnosis]);
     
     const handleStartSimulation = async () => {
         if (!topic.trim()) { setError('Por favor, ingresa un signo, síntoma o patología.'); return; }
         setIsLoading(true); setError(null);
         try {
+            // Limpiar buffers y estudios del caso previo
+            setDynamicLabsBuffer([]);
+            setDynamicImagingBuffer([]);
+            setPreloadedDiagnosis(null);
+            setIsPrefetchingDiagnosis(false);
+            prefetchingDiagnosisPromiseRef.current = null;
+            setSelectedStudies({ labs: [], imaging: [] });
+            setAllAvailableStudies({ labs: [], imaging: [] });
+            setLabResults([]);
+            setImagingResults([]);
+            setFinalDiagnosis(null);
+
             const caseData = await generateClinicalCase(topic, difficulty);
-            setClinicalCase(caseData); setStep(1);
+            setClinicalCase(caseData); 
+            setStep(1);
+
+            // DISPARO EN SEGUNDO PLANO (Fases A, B y C) sin bloquear la interfaz
+            startBackgroundStudyPipeline(caseData);
         } catch (e) { setError('Error al generar el caso clínico.'); console.error(e); }
         setIsLoading(false);
     };
@@ -71,15 +205,6 @@ const MedicalSimulator: React.FC = () => {
         } catch(e) { setError('Error al procesar la pregunta.'); console.error(e); }
         setIsLoading(false);
     };
-    
-    const getFullCaseSummaryForDiagnosis = () => {
-        if (!clinicalCase) return '';
-        const vitalSignsLabels: {[key: string]: string} = { presionArterial: 'Presión Arterial', frecuenciaCardiaca: 'Frecuencia Cardiaca', frecuenciaRespiratoria: 'Frecuencia Respiratoria', temperatura: 'Temperatura', saturacionOxigeno: 'Saturación de Oxígeno' };
-        let summary = `**CASO CLÍNICO INICIAL**\n- Título: ${clinicalCase.caseTitle}\n- Perfil: ${clinicalCase.patientProfile}\n- Padecimiento: ${clinicalCase.historyOfPresentIllness}\n- Signos Vitales:\n${Object.entries(clinicalCase.vitalSigns).map(([k, v]) => `  - ${vitalSignsLabels[k] || k}: ${v}`).join('\n')}\n- Examen Físico: ${clinicalCase.physicalExam}\n\n`;
-        summary += `**ANAMNESIS DIRIGIDA**\n${anamnesisHistory.length > 0 ? anamnesisHistory.map(t => `- Médico: ${t.question}\n- Paciente: ${t.patientResponse}\n`).join('\n') : 'No se realizó anamnesis adicional.\n'}\n`;
-        summary += `**RESULTADOS DE ESTUDIOS**\nLaboratorios:\n${labResults.length > 0 ? labResults.map(l => `- ${l.study}: ${l.interpretation}\n`).join('') : 'No se solicitaron.\n'}\nImagen:\n${imagingResults.length > 0 ? imagingResults.map(i => `- ${i.study}: ${i.findings}\n`).join('') : 'No se solicitaron.\n'}`;
-        return summary;
-    };
 
     const [showApiKeyModal, setShowApiKeyModal] = useState(false);
     const [pendingImageRequest, setPendingImageRequest] = useState<{study: string, findings: string} | null>(null);
@@ -87,6 +212,10 @@ const MedicalSimulator: React.FC = () => {
     const handleStudySelection = async (type: 'labs' | 'imaging', study: string, checked: boolean) => {
         const isAlreadySelected = selectedStudies[type].includes(study);
         if (checked === isAlreadySelected) return;
+
+        // Invalidate current preloaded diagnosis as new studies will change the clinical summary
+        setPreloadedDiagnosis(null);
+        prefetchingDiagnosisPromiseRef.current = null;
 
         setSelectedStudies(prev => ({ ...prev, [type]: checked ? [...prev[type], study] : prev[type].filter(s => s !== study) }));
 
@@ -96,38 +225,130 @@ const MedicalSimulator: React.FC = () => {
             return;
         }
 
+        const normalizedStudy = study.trim().toLowerCase();
+
+        // 1. Comprobar si ya está disponible en el buffer dinámico generado en segundo plano
+        if (type === 'labs') {
+            const bufferedLab = dynamicLabsBuffer.find(l => 
+                l.study.toLowerCase().trim() === normalizedStudy ||
+                l.study.toLowerCase().includes(normalizedStudy) ||
+                normalizedStudy.includes(l.study.toLowerCase())
+            );
+
+            if (bufferedLab) {
+                // Copia instantánea sin llamadas de API adicionales ni pantalla de carga
+                setLabResults(prev => [...prev.filter(r => r.study !== study), bufferedLab]);
+                return;
+            }
+        } else {
+            const bufferedImaging = dynamicImagingBuffer.find(i => 
+                i.study.toLowerCase().trim() === normalizedStudy ||
+                i.study.toLowerCase().includes(normalizedStudy) ||
+                normalizedStudy.includes(i.study.toLowerCase())
+            );
+
+            if (bufferedImaging) {
+                // Si la imagen médica ya fue generada previamente
+                if (bufferedImaging.imageUrl) {
+                    setImagingResults(prev => [...prev.filter(r => r.study !== study), bufferedImaging]);
+                    return;
+                } else {
+                    // Generar la imagen usando el informe de hallazgos que ya tenemos en el buffer
+                    setLoadingStudies(prev => new Set(prev).add(study));
+                    let imageUrl: string | undefined;
+                    try {
+                        imageUrl = await generateImage(bufferedImaging.study, bufferedImaging.findings);
+                    } catch (imgErr: any) { 
+                        console.warn("No se pudo renderizar la imagen gráfica para " + bufferedImaging.study, imgErr);
+                        const rawMsg = imgErr?.message || imgErr?.error?.message || '';
+                        if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
+                            setPendingImageRequest({ study: bufferedImaging.study, findings: bufferedImaging.findings });
+                            setShowApiKeyModal(true);
+                        }
+                    }
+                    const finalResult: ImagingResult = { ...bufferedImaging, imageUrl };
+                    setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
+                    setDynamicImagingBuffer(prev => prev.map(i => i.study === bufferedImaging.study ? finalResult : i));
+                    setLoadingStudies(prev => { const newSet = new Set(prev); newSet.delete(study); return newSet; });
+                    return;
+                }
+            }
+        }
+
+        // 2. Si no está en el buffer y la llamada en segundo plano sigue en vuelo (in-flight)
         setLoadingStudies(prev => new Set(prev).add(study));
         setError(null);
+
         try {
+            if (backgroundPipelinePromiseRef.current) {
+                try {
+                    const resolved = await backgroundPipelinePromiseRef.current;
+                    if (type === 'labs') {
+                        const found = resolved.labs?.find(l => 
+                            l.study.toLowerCase().trim() === normalizedStudy ||
+                            l.study.toLowerCase().includes(normalizedStudy) ||
+                            normalizedStudy.includes(l.study.toLowerCase())
+                        );
+                        if (found) {
+                            setLabResults(prev => [...prev.filter(r => r.study !== study), found]);
+                            return;
+                        }
+                    } else {
+                        const found = resolved.imaging?.find(i => 
+                            i.study.toLowerCase().trim() === normalizedStudy ||
+                            i.study.toLowerCase().includes(normalizedStudy) ||
+                            normalizedStudy.includes(i.study.toLowerCase())
+                        );
+                        if (found) {
+                            let imageUrl: string | undefined;
+                            try {
+                                imageUrl = await generateImage(found.study, found.findings);
+                            } catch (imgErr: any) {
+                                console.warn("No se pudo renderizar la imagen gráfica para " + found.study, imgErr);
+                                const rawMsg = imgErr?.message || imgErr?.error?.message || '';
+                                if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
+                                    setPendingImageRequest({ study: found.study, findings: found.findings });
+                                    setShowApiKeyModal(true);
+                                }
+                            }
+                            const finalResult = { ...found, imageUrl };
+                            setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
+                            return;
+                        }
+                    }
+                } catch (pipeErr) {
+                    console.warn("Pipeline error, fallback to direct request:", pipeErr);
+                }
+            }
+
+            // 3. Si es un estudio personalizado añadido por el usuario, generar bajo demanda
             const request = type === 'labs' ? { labs: [study], imaging: [] } : { labs: [], imaging: [study] };
             const tempContext = `Caso: ${clinicalCase?.historyOfPresentIllness}. Anamnesis: ${anamnesisHistory.map(h => h.patientResponse).join(' ')}`;
             const resultData = await generateStudyResults(tempContext, request);
-            if (type === 'labs' && resultData.labs.length > 0) {
-                setLabResults(prev => [...prev.filter(r => r.study !== study), ...resultData.labs]);
-            } else if (type === 'imaging' && resultData.imaging.length > 0) {
+            
+            if (type === 'labs' && resultData.labs && resultData.labs.length > 0) {
+                const labResult = resultData.labs[0];
+                setLabResults(prev => [...prev.filter(r => r.study !== study), labResult]);
+                setDynamicLabsBuffer(prev => [...prev.filter(r => r.study !== study), labResult]);
+            } else if (type === 'imaging' && resultData.imaging && resultData.imaging.length > 0) {
                 const result = resultData.imaging[0];
                 let imageUrl: string | undefined;
                 try {
                     imageUrl = await generateImage(result.study, result.findings);
                 } catch (imgErr: any) { 
-                    console.error("Error generating medical image:", imgErr);
-                    let errorMessage = '';
-                    if (typeof imgErr === 'string') errorMessage = imgErr;
-                    else if (imgErr?.error?.message) errorMessage = imgErr.error.message;
-                    else if (imgErr?.message) errorMessage = imgErr.message;
-                    else errorMessage = JSON.stringify(imgErr);
-
-                    if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('403') || errorMessage.includes('does not have permission') || errorMessage.includes('Requested entity was not found')) {
+                    console.warn("No se pudo renderizar la imagen para " + result.study, imgErr);
+                    const rawMsg = imgErr?.message || imgErr?.error?.message || '';
+                    if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
                          setPendingImageRequest({ study: result.study, findings: result.findings });
                          setShowApiKeyModal(true);
-                         setError("Se requiere una clave de API válida para generar imágenes médicas de alta calidad.");
-                    } else {
-                        setError("Ocurrió un error inesperado al generar la imagen médica.");
                     }
                 }
-                setImagingResults(prev => [...prev.filter(r => r.study !== study), { ...result, imageUrl }]);
+                const finalResult = { ...result, imageUrl };
+                setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
+                setDynamicImagingBuffer(prev => [...prev.filter(r => r.study !== study), finalResult]);
             }
-        } catch (e) {
+        } catch (e: any) {
+            console.error(`Error al generar resultado para ${study}:`, e);
             setError(`Error al generar resultado para ${study}.`);
             setSelectedStudies(prev => ({ ...prev, [type]: prev[type].filter(s => s !== study) }));
         } finally {
@@ -152,33 +373,115 @@ const MedicalSimulator: React.FC = () => {
     };
     
     const handleGetDiagnosis = async () => {
-        setIsLoading(true); setError(null);
+        setError(null);
+
+        // Caso 1: El diagnóstico ya está listo en el búfer precargado (cambio instantáneo 0ms)
+        if (preloadedDiagnosis) {
+            setFinalDiagnosis(preloadedDiagnosis);
+            setStep(3);
+            return;
+        }
+
+        // Caso 2: La llamada en segundo plano sigue en vuelo (esperar su resolución con spinner)
+        if (isPrefetchingDiagnosis && prefetchingDiagnosisPromiseRef.current) {
+            setIsLoading(true);
+            try {
+                const diagnosisData = await prefetchingDiagnosisPromiseRef.current;
+                setFinalDiagnosis(diagnosisData);
+                setStep(3);
+            } catch (err) {
+                console.error("Error al aguardar diagnóstico en vuelo:", err);
+                // Respaldo directo en caso de fallo
+                try {
+                    const fullContext = getFullCaseSummaryForDiagnosis();
+                    if (!fullContext) throw new Error('No hay suficiente información.');
+                    const directData = await getFinalDiagnosis(fullContext);
+                    setFinalDiagnosis(directData);
+                    setStep(3);
+                } catch (fallbackErr) {
+                    setError('Error al generar el diagnóstico.');
+                    console.error(fallbackErr);
+                }
+            } finally {
+                setIsLoading(false);
+            }
+            return;
+        }
+
+        // Caso 3: Fallback normal si no había precarga activa
+        setIsLoading(true);
         try {
             const fullContext = getFullCaseSummaryForDiagnosis();
             if (!fullContext) { setError('No hay suficiente información.'); setIsLoading(false); return; }
             const diagnosisData = await getFinalDiagnosis(fullContext);
-            setFinalDiagnosis(diagnosisData); setStep(3);
-        } catch(e) { setError('Error al generar el diagnóstico.'); console.error(e); }
-        setIsLoading(false);
+            setFinalDiagnosis(diagnosisData); 
+            setStep(3);
+        } catch(e) { 
+            setError('Error al generar el diagnóstico.'); 
+            console.error(e); 
+        } finally {
+            setIsLoading(false);
+        }
     };
     
     const resetSimulator = () => {
+        backgroundPipelinePromiseRef.current = null;
+        prefetchingDiagnosisPromiseRef.current = null;
+        setIsBufferingStudies(false);
+        setIsPrefetchingDiagnosis(false);
+        setPreloadedDiagnosis(null);
         setTopic(''); setStep(0); setClinicalCase(null); setAnamnesisHistory([]); 
         setAllAvailableStudies({ labs: [], imaging: [] }); setSelectedStudies({ labs: [], imaging: [] }); 
         setLabResults([]); setImagingResults([]); setFinalDiagnosis(null); setError(null);
+        setDynamicLabsBuffer([]); setDynamicImagingBuffer([]);
         setDifficulty('Interno');
     };
 
     const handleProceedToStudies = async () => {
+        if (!clinicalCase) { setError('Error: no hay caso clínico cargado.'); return; }
+
+        if (allAvailableStudies.labs.length > 0 || allAvailableStudies.imaging.length > 0) {
+            setStep(2);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
-        if (!clinicalCase) { setError('Error: no hay caso clínico cargado.'); setIsLoading(false); return; }
         try {
-            const suggestions = await getSuggestedStudies(clinicalCase);
-            setAllAvailableStudies({ labs: suggestions.suggestedLabs, imaging: suggestions.suggestedImaging });
+            if (backgroundPipelinePromiseRef.current) {
+                await backgroundPipelinePromiseRef.current;
+            } else {
+                await startBackgroundStudyPipeline(clinicalCase);
+            }
             setStep(2);
-        } catch (e) { setError('Error al obtener sugerencias de estudios.'); console.error(e); }
-        setIsLoading(false);
+        } catch (e) { 
+            setError('Error al obtener sugerencias de estudios.'); 
+            console.error(e); 
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRetryImage = async () => {
+        if (!pendingImageRequest) return;
+        setIsLoading(true);
+        setError(null);
+        try {
+            await (window as any).aistudio.openSelectKey();
+            const imageUrl = await generateImage(pendingImageRequest.study, pendingImageRequest.findings);
+            setImagingResults(prev => [...prev.filter(r => r.study !== pendingImageRequest.study), { 
+                study: pendingImageRequest.study, 
+                findings: pendingImageRequest.findings, 
+                imageUrl 
+            }]);
+            setShowApiKeyModal(false);
+            setPendingImageRequest(null);
+        } catch (e: any) {
+            console.error("Retry failed", e);
+            setError("No se pudo generar la imagen. Asegúrate de haber seleccionado una clave válida.");
+        } finally {
+            setIsLoading(false);
+        }
     };
     
     const renderCaseInfo = () => {
@@ -214,65 +517,81 @@ const MedicalSimulator: React.FC = () => {
 
     const renderStudies = () => {
         const renderStudySelectionList = (type: 'labs' | 'imaging', studies: string[], title: string) => <div className="space-y-3">
-            <h4 className="font-semibold mb-3 text-lg">{title}</h4>
-            {studies.map(study => <div key={study}>
-                <label className="flex items-center cursor-pointer p-2.5 bg-white dark:bg-slate-800 rounded-lg border-2 border-gray-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-purple-400 transition-colors">
-                    <input type="checkbox" onChange={e => handleStudySelection(type, study, e.target.checked)} checked={selectedStudies[type].includes(study)} disabled={loadingStudies.has(study)} className="h-5 w-5 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500" />
-                    <span className="ml-3 text-sm font-medium">{study}</span>
-                    {loadingStudies.has(study) && <div className="ml-auto animate-spin rounded-full h-4 w-4 border-b-2 border-t-2 border-blue-500" />}
-                </label>
-            </div>)}
-             <div className="mt-4">
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-400 mb-1">¿Necesitas otro estudio?</label>
-                 <div className="flex items-center gap-2">
-                    <input type="text" value={type === 'labs' ? customLab : customImaging} onChange={e => type === 'labs' ? setCustomLab(e.target.value) : setCustomImaging(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCustomStudy(type)} placeholder={type === 'labs' ? "Otro laboratorio..." : "Otro estudio de imagen..."} className="flex-grow px-3 py-2 bg-white dark:bg-slate-700 border-2 border-gray-300 dark:border-slate-600 rounded-md text-sm focus:border-blue-500" />
-                    <button onClick={() => handleAddCustomStudy(type)} className="bg-gray-200 dark:bg-slate-600 hover:bg-gray-300 dark:hover:bg-slate-500 text-sm font-semibold py-2 px-4 rounded-md border-2 border-transparent">Añadir</button>
-                </div>
+            <h4 className="font-semibold text-lg text-gray-700 dark:text-gray-300">{title}</h4>
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                {studies.map(study => (
+                    <label key={study} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={selectedStudies[type].includes(study)}
+                            onChange={e => handleStudySelection(type, study, e.target.checked)}
+                            disabled={loadingStudies.has(study)}
+                            className="w-5 h-5 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <span className="text-gray-800 dark:text-gray-200 text-sm">{study}</span>
+                        {loadingStudies.has(study) && <span className="text-xs text-blue-500 animate-pulse">Cargando...</span>}
+                    </label>
+                ))}
+            </div>
+            <div className="flex gap-2 mt-2">
+                <input
+                    type="text"
+                    value={type === 'labs' ? customLab : customImaging}
+                    onChange={e => type === 'labs' ? setCustomLab(e.target.value) : setCustomImaging(e.target.value)}
+                    placeholder={`Añadir ${type === 'labs' ? 'laboratorio' : 'imagen'}...`}
+                    className="flex-grow text-xs px-3 py-2 bg-white dark:bg-slate-800 border rounded-lg"
+                    onKeyDown={e => e.key === 'Enter' && handleAddCustomStudy(type)}
+                />
+                <button
+                    onClick={() => handleAddCustomStudy(type)}
+                    className="text-xs bg-gray-200 dark:bg-slate-700 px-3 py-2 rounded-lg hover:bg-gray-300"
+                >
+                    +
+                </button>
             </div>
         </div>;
 
-        const renderResultsPanel = () => <div className="space-y-6">
-            {labResults.length > 0 && <div>
-                <h3 className="font-bold text-xl mb-3 text-blue-900 dark:text-cyan-300 border-b-2 border-blue-200 dark:border-cyan-800 pb-1 inline-block">Resultados de Laboratorio</h3>
-                <div className="space-y-4">{labResults.map(result => 
-                    <div key={result.study} className="p-4 bg-white dark:bg-slate-800 rounded-xl border-2 border-blue-300 dark:border-emerald-500 shadow-md animate-fade-in">
-                        <h4 className="font-semibold mb-2 text-lg text-blue-800 dark:text-emerald-300">{result.study}</h4>
-                        <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-slate-600">
-                            <table className="min-w-full text-xs md:text-sm !border-none !shadow-none !m-0">
-                                <thead className="bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-200">
-                                    <tr>
-                                        <th scope="col" className="px-3 py-2 text-left font-bold !border-b-2 !border-gray-300 dark:!border-slate-500">Parámetro</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-bold !border-b-2 !border-gray-300 dark:!border-slate-500">Resultado</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-bold hidden sm:table-cell !border-b-2 !border-gray-300 dark:!border-slate-500">Unidades</th>
-                                        <th scope="col" className="px-3 py-2 text-left font-bold !border-b-2 !border-gray-300 dark:!border-slate-500">Rango</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-200 dark:divide-slate-600">
-                                    {result.components?.map(comp => <tr key={comp.parameter} className={`${comp.isAbnormal ? "bg-red-50 dark:bg-red-900/30" : "odd:bg-white even:bg-gray-50 dark:odd:bg-slate-800 dark:even:bg-slate-800/50"}`}>
-                                        <td className="px-3 py-2 !border-b border-gray-200 dark:border-slate-700 font-medium text-gray-900 dark:text-gray-100">{comp.parameter}</td>
-                                        <td className={`px-3 py-2 font-bold !border-b border-gray-200 dark:border-slate-700 ${comp.isAbnormal ? 'text-red-600 dark:text-red-400' : 'text-gray-800 dark:text-gray-200'}`}>{comp.value}</td>
-                                        <td className="px-3 py-2 hidden sm:table-cell !border-b border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400">{comp.units}</td>
-                                        <td className="px-3 py-2 !border-b border-gray-200 dark:border-slate-700 text-gray-600 dark:text-gray-400">{comp.referenceRange}</td>
-                                    </tr>)}
-                                </tbody>
-                            </table>
-                        </div>
-                        <p className="mt-3 text-sm italic p-2 bg-blue-50 dark:bg-slate-700/50 rounded border border-blue-100 dark:border-slate-600"><strong>Interpretación: </strong>{result.interpretation}</p>
+        const renderResultsPanel = () => <div className="space-y-6 mt-6">
+            {labResults.length > 0 && <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                <h4 className="font-bold text-lg mb-3 text-blue-900 dark:text-cyan-400">Resultados de Laboratorio</h4>
+                <div className="space-y-4">
+                    {labResults.map((result, index) => <div key={index} className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg border border-gray-100 dark:border-slate-700">
+                        <h5 className="font-semibold text-gray-800 dark:text-gray-200 mb-1">{result.study}</h5>
+                        {result.components && result.components.length > 0 ? (
+                            <div className="overflow-x-auto my-2">
+                                <table className="min-w-full text-xs text-left">
+                                    <thead className="bg-gray-100 dark:bg-slate-700">
+                                        <tr>
+                                            <th className="p-1">Parámetro</th>
+                                            <th className="p-1">Resultado</th>
+                                            <th className="p-1">Referencia</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {result.components.map((c, idx) => (
+                                            <tr key={idx} className={`border-b dark:border-slate-700 ${c.isAbnormal ? 'text-red-600 dark:text-red-400 font-bold' : ''}`}>
+                                                <td className="p-1">{c.parameter}</td>
+                                                <td className="p-1">{c.value} {c.units}</td>
+                                                <td className="p-1 text-gray-500">{c.referenceRange}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : null}
+                        <p className="text-xs text-gray-600 dark:text-gray-300 mt-1"><strong>Interpretación: </strong>{result.interpretation}</p>
                     </div>)}
                 </div>
             </div>}
-            {imagingResults.length > 0 && <div>
-                <h3 className="font-bold text-xl mb-3 text-blue-900 dark:text-cyan-300 border-b-2 border-blue-200 dark:border-cyan-800 pb-1 inline-block">Resultados de Imagen</h3>
-                <div className="space-y-4">{imagingResults.map(result => 
-                    <div key={result.study} className="p-4 bg-white dark:bg-slate-800 rounded-xl border-2 border-blue-300 dark:border-purple-500 shadow-md animate-fade-in">
-                        <h4 className="font-semibold mb-2 text-lg text-blue-800 dark:text-purple-300">{result.study}</h4>
-                        {result.imageUrl && <img src={result.imageUrl} alt={`Imagen de ${result.study}`} className="rounded-lg shadow-md w-full max-w-md mx-auto border-2 border-gray-200 dark:border-slate-600" />}
-                        {result.findings && (
-                            <div className="mt-4 p-3 bg-gray-50 dark:bg-slate-900/50 rounded-md border border-gray-200 dark:border-slate-600">
-                                <h5 className="font-semibold text-sm text-gray-800 dark:text-gray-300 mb-1">Informe Radiológico</h5>
-                                <p className="text-sm text-gray-700 dark:text-gray-400 whitespace-pre-wrap">{result.findings}</p>
-                            </div>
-                        )}
+            {imagingResults.length > 0 && <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
+                <h4 className="font-bold text-lg mb-3 text-blue-900 dark:text-cyan-400">Estudios de Imagen</h4>
+                <div className="space-y-4">
+                    {imagingResults.map((result, index) => <div key={index} className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg border border-gray-100 dark:border-slate-700">
+                        <h5 className="font-semibold text-gray-800 dark:text-gray-200 mb-1">{result.study}</h5>
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-2"><strong>Hallazgos: </strong>{result.findings}</p>
+                        {result.imageUrl ? (
+                            <img src={result.imageUrl} alt={result.study} className="w-full max-w-sm mx-auto rounded-lg shadow-md mt-2" />
+                        ) : null}
                     </div>)}
                 </div>
             </div>}
@@ -291,6 +610,19 @@ const MedicalSimulator: React.FC = () => {
             {(labResults.length > 0 || imagingResults.length > 0) && !loadingStudies.size && step === 2 &&
             <button onClick={handleGetDiagnosis} disabled={isLoading} className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 shadow-lg border-2 border-transparent">{isLoading ? 'Procesando...' : 'Obtener Diagnóstico Final'}</button>}
         </div>;
+    };
+
+    const renderDiagnosisHtml = (markdownText: string, sources: GroundingSource[]) => {
+        let parsedHtml = marked.parse(markdownText) as string;
+        parsedHtml = parsedHtml.replace(/\[(\d+)\]/g, (match, numberStr) => {
+            const index = parseInt(numberStr, 10) - 1;
+            const source = sources[index];
+            if (source && source.uri) {
+                return `<a href="${source.uri}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 dark:bg-cyan-950 dark:text-cyan-300 border border-blue-300 dark:border-cyan-700 hover:scale-110 hover:bg-blue-200 dark:hover:bg-cyan-900 transition-all no-underline shadow-xs cursor-pointer" title="${source.title || source.uri}">[${numberStr}]</a>`;
+            }
+            return `<span class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300 border border-gray-300 dark:border-slate-600">[${numberStr}]</span>`;
+        });
+        return parsedHtml;
     };
 
     const renderContent = () => {
@@ -321,69 +653,67 @@ const MedicalSimulator: React.FC = () => {
                 const diagnosisText = finalDiagnosis.text;
                 const sourcesHeader = "### Fuentes de Información";
                 const sourcesIndex = diagnosisText.lastIndexOf(sourcesHeader);
-
                 const mainDiagnosis = sourcesIndex !== -1 ? diagnosisText.substring(0, sourcesIndex) : diagnosisText;
                 const infoSources = sourcesIndex !== -1 ? diagnosisText.substring(sourcesIndex) : "";
                 
                 return (
-                    <div className="mt-6 animate-fade-in space-y-4">
-                        <h3 className="font-bold text-2xl text-blue-900 dark:text-cyan-300">Diagnóstico y Desglose</h3>
-                        <div className="p-6 bg-green-50/50 dark:bg-slate-800 rounded-xl border-2 border-green-500 dark:border-pink-500 shadow-lg prose max-w-none dark:prose-invert"
-                            dangerouslySetInnerHTML={{ __html: marked.parse(mainDiagnosis) }} />
-                        
-                        {infoSources && (
-                            <details className="pt-4 border-t dark:border-slate-700">
-                                <summary className="font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 list-inside">
-                                    Fuentes de Información
-                                </summary>
-                                <div className="mt-2 p-4 bg-gray-50 rounded-lg border-2 border-gray-200 prose max-w-none dark:prose-invert dark:bg-slate-800 dark:border-slate-700"
-                                    dangerouslySetInnerHTML={{ __html: marked.parse(infoSources) }}
-                                />
-                            </details>
-                        )}
-
+                    <div className="mt-6 animate-fade-in space-y-6">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                            <h3 className="font-bold text-2xl text-blue-900 dark:text-cyan-300">Diagnóstico y Desglose Clínico</h3>
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 dark:bg-emerald-950 dark:text-emerald-300 border border-green-300 dark:border-emerald-700 shadow-xs">
+                                <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
+                                Grounding Activo
+                            </span>
+                        </div>
+                        <div 
+                            className="p-6 bg-green-50/50 dark:bg-slate-800 rounded-xl border-2 border-green-500 dark:border-pink-500 shadow-lg prose max-w-none dark:prose-invert"
+                            dangerouslySetInnerHTML={{ __html: renderDiagnosisHtml(mainDiagnosis, finalDiagnosis.sources) }} 
+                        />
                         {finalDiagnosis.sources.length > 0 && (
-                            <details className="pt-4 border-t dark:border-slate-700">
-                                <summary className="font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 list-inside">
-                                    Fuentes de Google Search
-                                </summary>
-                                <ul className="list-disc list-inside text-sm mt-2 space-y-1 pl-4">
-                                    {finalDiagnosis.sources.map((source, i) => source.uri && 
-                                        <li key={i}>
-                                            <a href={source.uri} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline dark:text-blue-400 break-all">
-                                                {getLinkText(source)}
+                            <div className="p-5 bg-white dark:bg-slate-900/80 rounded-xl border-2 border-blue-200 dark:border-cyan-800/70 shadow-md space-y-3">
+                                <div className="flex items-center justify-between flex-wrap gap-2">
+                                    <div className="flex items-center gap-2 text-blue-900 dark:text-cyan-300 font-bold text-base">
+                                        <svg className="w-5 h-5 text-blue-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                        </svg>
+                                        <span>Evidencia y Fuentes de Búsqueda (Grounding)</span>
+                                    </div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                        {finalDiagnosis.sources.length} {finalDiagnosis.sources.length === 1 ? 'fuente consultada' : 'fuentes consultadas'}
+                                    </span>
+                                </div>
+                                <div className="flex flex-wrap gap-2.5 pt-1">
+                                    {finalDiagnosis.sources.map((source, idx) => {
+                                        if (!source.uri) return null;
+                                        const citationNumber = idx + 1;
+                                        const title = getLinkText(source);
+                                        return (
+                                            <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-medium rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-cyan-300 dark:border-cyan-700/60 shadow-xs hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 cursor-pointer no-underline">
+                                                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 dark:bg-cyan-500 text-white dark:text-slate-950 text-xs font-bold shadow-xs">
+                                                    {citationNumber}
+                                                </span>
+                                                <span className="max-w-[200px] md:max-w-xs truncate font-medium">{title}</span>
                                             </a>
-                                        </li>
-                                    )}
-                                </ul>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                        {infoSources && (
+                            <details className="pt-2 border-t dark:border-slate-700">
+                                <summary className="font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 list-inside text-sm">
+                                    Ver desglose textual de referencias bibliográficas
+                                </summary>
+                                <div 
+                                    className="mt-2 p-4 bg-gray-50 rounded-lg border-2 border-gray-200 prose max-w-none dark:prose-invert dark:bg-slate-800 dark:border-slate-700"
+                                    dangerouslySetInnerHTML={{ __html: renderDiagnosisHtml(infoSources, finalDiagnosis.sources) }}
+                                />
                             </details>
                         )}
                     </div>
                 );
             })()}
          </div>;
-    };
-
-    const handleRetryImage = async () => {
-        if (!pendingImageRequest) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            await (window as any).aistudio.openSelectKey();
-            const imageUrl = await generateImage(pendingImageRequest.study, pendingImageRequest.findings);
-            setImagingResults(prev => [...prev.filter(r => r.study !== pendingImageRequest.study), { 
-                study: pendingImageRequest.study, 
-                findings: pendingImageRequest.findings, 
-                imageUrl 
-            }]);
-            setShowApiKeyModal(false);
-            setPendingImageRequest(null);
-        } catch (e) {
-            console.error("Retry failed", e);
-            setError("No se pudo generar la imagen. Asegúrate de haber seleccionado una clave válida.");
-        } finally {
-            setIsLoading(false);
-        }
     };
 
     return <Card className="max-w-4xl mx-auto">

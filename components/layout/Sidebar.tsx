@@ -41,18 +41,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isOpe
             ></div>
 
             <aside className={`fixed top-0 left-0 h-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border-r border-gray-200 dark:border-slate-700 w-64 z-40 transform transition-transform md:relative md:translate-x-0 md:shadow-lg flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                <div className="p-4 flex items-center justify-center gap-2 border-b border-gray-200 dark:border-slate-700 cursor-pointer h-[65px] flex-shrink-0" onClick={() => handleSectionClick(Section.Welcome)}>
+                <div className="p-4 flex items-center justify-center gap-3 border-b border-gray-200 dark:border-slate-700 cursor-pointer h-[65px] flex-shrink-0" onClick={() => handleSectionClick(Section.Welcome)}>
                      <button 
                         onClick={(e) => {
                             e.stopPropagation(); // Prevenir navegación al home
                             setShowDisclaimer(true);
                         }}
-                        className="text-3xl filter drop-shadow-md hover:scale-110 transition-transform cursor-help animate-pulse" 
-                        role="img" 
+                        className="hover:scale-105 transition-transform cursor-help flex-shrink-0" 
                         aria-label="Aviso Legal Médico"
                         title="Ver Aviso Legal"
                      >
-                        ⚕️
+                        <img src="/icon-192.png" alt="Logo Asistente Médico" className="w-8 h-8 rounded-lg shadow-md object-cover border border-blue-200 dark:border-slate-600" />
                      </button>
                      <h2 className="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-teal-600 dark:from-cyan-300 dark:to-purple-400">Asistente Médico</h2>
                 </div>
