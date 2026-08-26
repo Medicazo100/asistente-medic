@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type, Chat, GenerateContentResponse } from "@google/genai";
+import { GoogleGenAI, Type, Chat } from "@google/genai";
 import { QuizQuestion, ClinicalCase, LabResult, ImagingResult, GroundingSource } from '../types';
 
 function getAi(): GoogleGenAI {
@@ -66,7 +66,7 @@ export async function generateQuiz(topic: string, difficulty: string, numQuestio
     const prompt = `Genera un cuestionario de ${numQuestions} preguntas de opción múltiple sobre "${topic}" para médicos internos, ${difficultyPrompt}. Cada pregunta debe tener 4 opciones. Una opción debe ser la correcta. Proporciona la respuesta correcta en texto y una retroalimentación concisa para cada pregunta, explicando por qué la respuesta es correcta.`;
 
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -98,7 +98,7 @@ export async function generateClinicalCase(topic: string, difficulty: string): P
     const prompt = `Genera un caso clínico detallado y desafiante ${difficultyPrompt}, basado en la siguiente presentación o frase médica: "${topic}". El caso debe tener un título o "frase alusiva" que genere intriga sin revelar el diagnóstico (ej: "Un corazón fuera de ritmo"). IMPORTANTE: NO menciones ni insinúes el diagnóstico final en ninguna parte de la descripción del caso. El objetivo es que el interno lo descubra. El caso debe incluir: un título alusivo, perfil del paciente, historia de la enfermedad actual, signos vitales y hallazgos del examen físico. Sé realista y educativo.`;
 
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -132,40 +132,42 @@ export async function getAnamnesisFeedback(
   userQuestion: string
 ): Promise<{ patientResponse: string, tutorFeedback: string }> {
   
-  const prompt = `
-Eres un simulador dual: actúas como un PACIENTE real y como un TUTOR MÉDICO docente de alta exigencia para internos de pregrado.
+  // Optimización de tokens: formateo compacto del historial omitiendo metadatos redundantes y feedback previo
+  const formattedHistory = Array.isArray(history) && history.length > 0
+    ? history.map((t, idx) => `${idx + 1}. Interno: "${t.question}" -> Paciente: "${t.patientResponse}"`).join('\n')
+    : 'Ninguno (inicio de la anamnesis)';
 
-INFORMACIÓN DEL CASO DE REFERENCIA (ESTRICTAMENTE PRIVADA):
-${JSON.stringify(clinicalCase)}
+  const vitalSignsStr = clinicalCase.vitalSigns 
+    ? `PA: ${clinicalCase.vitalSigns.presionArterial}, FC: ${clinicalCase.vitalSigns.frecuenciaCardiaca}, FR: ${clinicalCase.vitalSigns.frecuenciaRespiratoria}, Temp: ${clinicalCase.vitalSigns.temperatura}, SatO2: ${clinicalCase.vitalSigns.saturacionOxigeno}`
+    : 'No registrados';
 
-HISTORIAL DE LA ANAMNESIS HASTA EL MOMENTO:
-${JSON.stringify(history)}
+  const caseSummary = `Caso: ${clinicalCase.caseTitle}
+Perfil: ${clinicalCase.patientProfile}
+Padecimiento: ${clinicalCase.historyOfPresentIllness}
+Signos Vitales: ${vitalSignsStr}
+Examen Físico: ${clinicalCase.physicalExam}`;
+
+  const prompt = `Simulador dual para internos de pregrado: PACIENTE real y TUTOR MÉDICO docente.
+
+CASO CLÍNICO DE REFERENCIA (ESTRICTAMENTE CONFIDENCIAL):
+${caseSummary}
+
+HISTORIAL DE ANAMNESIS ACUMULADA:
+${formattedHistory}
 
 PREGUNTA ACTUAL DEL INTERNO: 
 "${userQuestion}"
 
 ---
-REGLAS DE ORO OBLIGATORIAS DE SEGURIDAD CLÍNICA (TUTOR Y PACIENTE):
-1. PROHIBICIÓN ABSOLUTA DE REVELAR EL DIAGNÓSTICO: Como Tutor o Paciente, ¡NUNCA dejes caer el nombre de la enfermedad, patología, diagnóstico definitivo o sospecha principal! Tampoco uses sinónimos evidentes. El estudiante debe descubrirlo por sí mismo en la fase final de la simulación.
-2. LIMITACIÓN DE CONOCIMIENTO DEL PACIENTE: Como Paciente, responde de manera realista, con lenguaje coloquial y subjetivo. Tú no sabes qué enfermedad tienes, solo sabes lo que te duele, cuándo empezó, qué lo alivia o empeora, y tus antecedentes personales si te los preguntan.
-3. REACCIÓN ANTE "ADIVINACIONES": Si el interno te hace una pregunta directa adivinando el diagnóstico (ej. "¿Usted tiene un infarto?" o "¿No será una apendicitis?"):
-   - El PACIENTE responderá con confusión: "No lo sé doctor, a mí solo me duele aquí...".
-   - El TUTOR le llamará la atención constructivamente por intentar adivinar antes de completar la anamnesis y exploración: "Recuerda que no debemos saltar a conclusiones diagnósticas sin haber caracterizado adecuadamente los síntomas primero. Enfócate en interrogar la semiología del dolor."
+REGLAS OBLIGATORIAS:
+1. PROHIBICIÓN ABSOLUTA DE REVELAR DIAGNÓSTICO: Jamás nombres la patología, diagnóstico definitivo ni sospecha directa.
+2. PACIENTE: Responde con lenguaje natural, coloquial y subjetivo según tu cuadro clínico. Si el interno intenta adivinar el diagnóstico directamente, muestra confusión: "No lo sé doctor, solo sé lo que siento...".
+3. TUTOR: Proporciona retroalimentación ultra concisa y formativa (máximo 2 a 3 oraciones). Evalúa la pertinencia semiológica de la pregunta y sugiere áreas semiológicas clave que convenga indagar (ej. semiología ALICIA, antecedentes, desencadenantes).
 
----
-TAREA DE RESPUESTA:
-1. PACIENTE: Responde la pregunta actual de forma coherente con tu caso clínico y el historial clínico acumulado.
-2. TUTOR: Evalúa críticamente la PREGUNTA DEL INTERNO. Tu feedback debe limitarse estrictamente a:
-   - Evaluar si la pregunta es clínicamente pertinente o si es redundante.
-   - Evaluar la técnica de comunicación (ej. si usó preguntas abiertas/cerradas, o si caracterizó correctamente el dolor usando nemotecnias como ALICIA).
-   - Sugerir áreas de exploración semiológica que el interno está olvidando (ej. "Excelente pregunta sobre el dolor, pero recuerda indagar también sobre síntomas acompañantes como náuseas o diaforesis" o "Buen avance, pero no olvides preguntar por los antecedentes heredofamiliares o hábitos de riesgo").
-   - Mantén un tono docente, firme pero empático.
-
-Responde únicamente con un objeto JSON estructurado con las propiedades 'patientResponse' y 'tutorFeedback'.
-`;
+Responde únicamente con un objeto JSON estructurado con 'patientResponse' y 'tutorFeedback'.`;
 
   const response = await getAi().models.generateContent({
-    model: 'gemini-3.1-flash-lite-preview',
+    model: 'gemini-3.7-flash',
     contents: prompt,
     config: {
       responseMimeType: "application/json",
@@ -186,7 +188,7 @@ Responde únicamente con un objeto JSON estructurado con las propiedades 'patien
 export async function getSuggestedStudies(clinicalCase: ClinicalCase): Promise<{ suggestedLabs: string[], suggestedImaging: string[] }> {
     const prompt = `Basado en el siguiente caso clínico: ${JSON.stringify(clinicalCase)}, sugiere una lista de los estudios de laboratorio e imagen más pertinentes para llegar al diagnóstico. Responde con un objeto JSON que contenga dos arreglos: "suggestedLabs" y "suggestedImaging". Sé conciso y clínicamente relevante.`;
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -217,7 +219,7 @@ export async function generateStudyResults(fullCaseContext: string, requestedStu
     Para cada estudio de imagen ('imaging'), incluye el nombre ('study') y el informe descriptivo detallado de los hallazgos radiológicos ('findings').`;
 
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -261,64 +263,51 @@ export async function generateStudyResults(fullCaseContext: string, requestedStu
     return safeJsonParse(response.text || '');
 }
 
-// FIX: Reverted to gemini-2.5-flash-image to avoid 403 PERMISSION_DENIED errors often seen with 3.1 preview models.
-// Also improved the prompt to ensure realistic medical imagery (e.g., chest X-rays for pneumonia).
 export async function generateImage(basePrompt: string, findings?: string): Promise<string> {
     const fullPrompt = findings
-        ? `Genera una imagen médica diagnóstica (ej: radiografía, tomografía o fotografía clínica) de: ${basePrompt}. La imagen DEBE mostrar explícitamente los siguientes hallazgos patológicos: ${findings}. Estilo fotorrealista, alta resolución, anatomía humana correcta, sin texto ni etiquetas. Ideal para educación médica.`
-        : `Genera una imagen médica o científica de alta calidad, estilo fotorrealista, representando: "${basePrompt}". Sin texto, etiquetas ni artefactos.`;
+        ? `Imagen médica diagnóstica de alta resolución y máxima fidelidad clínica de: ${basePrompt}. Hallazgos patológicos explícitos y visibles: ${findings}. Calidad fotorrealista de grado médico, proyección radiológica anatómica estándar (ej. PA/lateral de tórax, corte tomográfico axial o ecografía clínica en escala de grises de alto contraste según corresponda), texturas tisulares biológicamente verosímiles, estilo de fotografía médica real, fotorrealismo puro de alta definición, anatomía humana exacta. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`
+        : `Imagen médica diagnóstica de alta calidad, estilo de fotografía médica real y fotorrealismo puro de alta definición representando: "${basePrompt}". Anatomía humana exacta, contraste y escala de grises/colores diagnósticos adecuados según la modalidad clínica. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`;
 
     const ai = getAi();
-    
-    // gemini-2.5-flash-image is the recommended default for image generation.
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-            parts: [{ text: fullPrompt }]
-        },
+    const response = await ai.models.generateImages({
+        model: 'imagen-3.0-generate-002',
+        prompt: fullPrompt,
         config: {
-            imageConfig: {
-                aspectRatio: "1:1"
-            }
-        },
+            numberOfImages: 1,
+            aspectRatio: "1:1",
+            outputMimeType: "image/jpeg"
+        }
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        }
+    const imageObj = response.generatedImages?.[0];
+    if (!imageObj || !imageObj.image || !imageObj.image.imageBytes) {
+        throw new Error("No se pudo extraer la imagen generada.");
     }
-
-    throw new Error("No se generó ninguna imagen en la respuesta.");
+    const base64Data = imageObj.image.imageBytes;
+    return `data:image/jpeg;base64,${base64Data}`;
 }
 
-// FIX: Reverted to gemini-2.5-flash-image.
-export async function editImage(prompt: string, base64ImageData: string, mimeType: string): Promise<string> {
-    const response = await getAi().models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-            parts: [
-                {
-                    inlineData: {
-                        data: base64ImageData,
-                        mimeType: mimeType,
-                    },
-                },
-                {
-                    text: prompt,
-                },
-            ],
-        },
+export async function editImage(prompt: string, _base64ImageData?: string, _mimeType?: string): Promise<string> {
+    const fullPrompt = `Edición y generación de imagen médica diagnóstica de alta fidelidad clínica: ${prompt}. Estilo fotorrealista de grado médico, anatomía humana exacta, estilo de fotografía médica real, contrastes clínicos en escala de grises y proyecciones radiológicas exactas según corresponda. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`;
+
+    const ai = getAi();
+    const response = await ai.models.generateImages({
+        model: 'imagen-3.0-generate-002',
+        prompt: fullPrompt,
+        config: {
+            numberOfImages: 1,
+            aspectRatio: "1:1",
+            outputMimeType: "image/jpeg"
+        }
     });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        }
+    const imageObj = response.generatedImages?.[0];
+    if (!imageObj || !imageObj.image || !imageObj.image.imageBytes) {
+        throw new Error("No se pudo extraer la imagen generada.");
     }
-    throw new Error("No se pudo editar la imagen.");
+    const base64Data = imageObj.image.imageBytes;
+    return `data:image/jpeg;base64,${base64Data}`;
 }
-
 
 export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text: string, sources: GroundingSource[] }> {
     const prompt = `Basado en la siguiente información clínica completa: ${fullCaseContext}
@@ -349,8 +338,7 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     - [2] [Título del artículo o guía clínica](URL directa)`;
 
     const response = await getAi().models.generateContent({
-        // Updated model to gemini-3.1-pro-preview for complex text tasks per guidelines.
-        model: 'gemini-3.1-pro-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             tools: [{ googleSearch: {} }]
@@ -392,7 +380,7 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
 export async function generateNoteGuide(topic: string): Promise<{ guide: string, template: string }> {
     const prompt = `Para un paciente con "${topic}", genera un objeto JSON con dos propiedades: "guide" (guía detallada en Markdown para redactar una nota SOAP) y "template" (plantilla de nota SOAP en texto plano, pre-llenada con ejemplos y placeholders claros).`;
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -416,7 +404,7 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     Al final de la guía, incluye una sección titulada "### Fuentes" y lista las fuentes web que utilizaste con enlaces directos, formateadas como: "- [Título de la guía o artículo](URL)".`;
     
     const response = await getAi().models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: prompt,
         config: {
             tools: [{ googleSearch: {} }]
@@ -433,7 +421,7 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
 
 export function createChat(): Chat {
     return getAi().chats.create({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
     });
 }
 
@@ -544,7 +532,7 @@ export async function analyzeMedicalArticle(content: string | string[], mimeType
     
     if (Array.isArray(content)) {
         // Handle multiple images (e.g. converted PDF pages) for OCR analysis
-        content.forEach((base64Image, index) => {
+        content.forEach((base64Image) => {
              parts.push({
                 inlineData: {
                     data: base64Image,
@@ -569,8 +557,7 @@ export async function analyzeMedicalArticle(content: string | string[], mimeType
     }
 
     const response = await ai.models.generateContent({
-        // gemini-3-flash is multimodal and handles long context well (up to 1M tokens)
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3.7-flash',
         contents: {
             parts: parts
         },
