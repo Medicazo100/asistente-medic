@@ -265,48 +265,55 @@ export async function generateStudyResults(fullCaseContext: string, requestedStu
 
 export async function generateImage(basePrompt: string, findings?: string): Promise<string> {
     const fullPrompt = findings
-        ? `Imagen médica diagnóstica de alta resolución y máxima fidelidad clínica de: ${basePrompt}. Hallazgos patológicos explícitos y visibles: ${findings}. Calidad fotorrealista de grado médico, proyección radiológica anatómica estándar (ej. PA/lateral de tórax, corte tomográfico axial o ecografía clínica en escala de grises de alto contraste según corresponda), texturas tisulares biológicamente verosímiles, estilo de fotografía médica real, fotorrealismo puro de alta definición, anatomía humana exacta. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`
-        : `Imagen médica diagnóstica de alta calidad, estilo de fotografía médica real y fotorrealismo puro de alta definición representando: "${basePrompt}". Anatomía humana exacta, contraste y escala de grises/colores diagnósticos adecuados según la modalidad clínica. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`;
+        ? `Genera una imagen médica diagnóstica (ej: radiografía, tomografía o fotografía clínica) de: ${basePrompt}. La imagen DEBE mostrar explícitamente los siguientes hallazgos patológicos: ${findings}. Estilo fotorrealista, alta resolución, anatomía humana correcta, sin texto ni etiquetas. Ideal para educación médica.`
+        : `Genera una imagen médica o científica de alta calidad, estilo fotorrealista, representando: "${basePrompt}". Sin texto, etiquetas ni artefactos.`;
 
     const ai = getAi();
-    const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
-        prompt: fullPrompt,
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+            parts: [{ text: fullPrompt }]
+        },
         config: {
-            numberOfImages: 1,
-            aspectRatio: "1:1",
-            outputMimeType: "image/jpeg"
-        }
+            imageConfig: {
+                aspectRatio: "1:1"
+            }
+        },
     });
 
-    const imageObj = response.generatedImages?.[0];
-    if (!imageObj || !imageObj.image || !imageObj.image.imageBytes) {
-        throw new Error("No se pudo extraer la imagen generada.");
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
     }
-    const base64Data = imageObj.image.imageBytes;
-    return `data:image/jpeg;base64,${base64Data}`;
+
+    throw new Error("No se generó ninguna imagen en la respuesta.");
 }
 
-export async function editImage(prompt: string, _base64ImageData?: string, _mimeType?: string): Promise<string> {
-    const fullPrompt = `Edición y generación de imagen médica diagnóstica de alta fidelidad clínica: ${prompt}. Estilo fotorrealista de grado médico, anatomía humana exacta, estilo de fotografía médica real, contrastes clínicos en escala de grises y proyecciones radiológicas exactas según corresponda. NUNCA incluyas texto, etiquetas de texto, letras, marcas de agua ni artefactos sintéticos.`;
-
-    const ai = getAi();
-    const response = await ai.models.generateImages({
-        model: 'imagen-3.0-generate-002',
-        prompt: fullPrompt,
-        config: {
-            numberOfImages: 1,
-            aspectRatio: "1:1",
-            outputMimeType: "image/jpeg"
-        }
+export async function editImage(prompt: string, base64ImageData: string, mimeType: string): Promise<string> {
+    const response = await getAi().models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: {
+            parts: [
+                {
+                    inlineData: {
+                        data: base64ImageData,
+                        mimeType: mimeType,
+                    },
+                },
+                {
+                    text: prompt,
+                },
+            ],
+        },
     });
 
-    const imageObj = response.generatedImages?.[0];
-    if (!imageObj || !imageObj.image || !imageObj.image.imageBytes) {
-        throw new Error("No se pudo extraer la imagen generada.");
+    for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (part.inlineData) {
+            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        }
     }
-    const base64Data = imageObj.image.imageBytes;
-    return `data:image/jpeg;base64,${base64Data}`;
+    throw new Error("No se pudo editar la imagen.");
 }
 
 export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text: string, sources: GroundingSource[] }> {
