@@ -319,12 +319,13 @@ export async function editImage(prompt: string, base64ImageData: string, mimeTyp
 export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text: string, sources: GroundingSource[] }> {
     const prompt = `Basado en la siguiente información clínica completa: ${fullCaseContext}
 
-    Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada (Guías de Práctica Clínica, PubMed, UpToDate).
+    Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada y diversa (Guías de Práctica Clínica mexicanas CENETEC/SSA, guías internacionales AHA, ACC, ESC, ADA, KDIGO, IDSA, GOLD, revisiones en PubMed, NEJM, Lancet, JAMA y UpToDate).
 
     REGLAS DE FORMATO Y CITACIÓN:
     - IMPORTANTE: Redacta estrictamente en texto plano y Markdown estándar. NUNCA utilices sintaxis LaTeX ni símbolos de dólar ($ o $$) ni comandos como \text{}, \alpha, \beta para fórmulas o nombres biológicos/médicos (ej. escribe simplemente "IL-1", "IL-6", "TNF-alfa", "IL-8", etc.).
-    - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3] dentro del texto redactado, especialmente en la sección de 'Fisiopatología y Correlación Clínica' y en el 'Plan de Manejo y Tratamiento', para respaldar afirmaciones fisiopatológicas, esquemas farmacológicos y recomendaciones de guías clínicas.
-    - Cada número [n] debe coincidir con el orden de las fuentes y referencias consultadas.
+    - DIVERSIDAD Y AMPLITUD BIBLIOGRÁFICA: Consulta e incorpora activamente entre 4 y 6 fuentes médicas autorizadas y complementarias (nacionales e internacionales).
+    - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3], [4], [5], [6] dentro del texto redactado en las secciones correspondientes para respaldar cada punto fisiopatológico, criterio diagnóstico, esquema farmacológico con dosis y evidencia clínica.
+    - Cada número [n] debe coincidir rigurosamente con el orden de las fuentes consultadas.
 
     Utiliza los siguientes encabezados exactamente como se indican y en este orden:
 
@@ -332,18 +333,22 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     Establece el diagnóstico más probable de forma clara y concisa.
 
     ### Fisiopatología y Correlación Clínica
-    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita (ej. "...liberación de citoquinas pro-inflamatorias como IL-1 y TNF-alfa [1]", "...leucocitosis reactiva observada en la biometría hemática [2]"). Incluye citas numéricas [1], [2] correspondientes a las fuentes de evidencia.
+    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita (ej. "...liberación de citoquinas pro-inflamatorias como IL-1 y TNF-alfa [1]", "...leucocitosis reactiva observada en la biometría hemática [2]"). Incluye citas numéricas [1], [2], [3] correspondientes a las fuentes de evidencia.
 
     ### Plan de Manejo y Tratamiento
-    Detalla el plan de manejo inicial y el tratamiento específico para el diagnóstico principal. Basa tus recomendaciones en Guías de Práctica Clínica (GPC) actualizadas y en la medicina basada en evidencia. Sé específico en cuanto a fármacos, dosis y medidas de soporte, incluyendo citas numéricas [1], [2] para las guías de referencia utilizadas.
+    Detalla el plan de manejo inicial y el tratamiento específico para el diagnóstico principal. Basa tus recomendaciones en Guías de Práctica Clínica (GPC) actualizadas y en la medicina basada en evidencia. Sé específico en cuanto a fármacos, dosis y medidas de soporte, incluyendo citas numéricas [3], [4], [5] para las guías de referencia utilizadas.
 
     ### Diagnósticos Diferenciales
-    Al final, enumera al menos 2 diagnósticos diferenciales importantes que se consideraron. Para cada uno, explica brevemente por qué es menos probable que el diagnóstico principal en este caso específico.
+    Al final, enumera al menos 2 a 3 diagnósticos diferenciales importantes que se consideraron. Para cada uno, explica brevemente por qué es menos probable que el diagnóstico principal en este caso específico, citando evidencia comparativa si aplica.
     
     ### Fuentes de Información
-    Al final de todo, enumera de forma ordenada y numerada al menos 2 fuentes de alta calidad que respalden el diagnóstico y manejo, coincidiendo con los números de cita del texto:
+    Al final de todo, enumera de forma ordenada y numerada entre 4 y 6 fuentes de alta calidad que respalden el diagnóstico y manejo, coincidiendo con los números de cita del texto:
     - [1] [Título del artículo o guía clínica](URL directa)
-    - [2] [Título del artículo o guía clínica](URL directa)`;
+    - [2] [Título del artículo o guía clínica](URL directa)
+    - [3] [Título del artículo o guía clínica](URL directa)
+    - [4] [Título del artículo o guía clínica](URL directa)
+    - [5] [Título del artículo o guía clínica](URL directa)
+    - [6] [Título del artículo o guía clínica](URL directa)`;
 
     const response = await getAi().models.generateContent({
         model: 'gemini-3.7-flash',
@@ -368,8 +373,8 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
         }
     }
 
-    // Fallback: if groundingChunks didn't return sources, extract markdown links from text
-    if (sources.length === 0 && text) {
+    // Complement with markdown links from text to ensure full coverage of all cited sources
+    if (text) {
         const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
         let match;
         while ((match = linkRegex.exec(text)) !== null) {
@@ -405,11 +410,11 @@ export async function generateNoteGuide(topic: string): Promise<{ guide: string,
 }
 
 export async function generateQuickGuide(topic: string): Promise<{ text: string, sources: GroundingSource[] }> {
-    const prompt = `Proporciona una guía de referencia rápida sobre el manejo de "${topic}" para médicos internos. Basa tu respuesta en la información más actualizada posible, dando **prioridad absoluta a las Guías de Práctica Clínica (GPC) de México**. Si no encuentras información mexicana, utiliza guías internacionales reconocidas, **preferiblemente de Estados Unidos** (ej. AAFP, AHA, etc.). 
+    const prompt = `Proporciona una guía de referencia rápida sobre el manejo de "${topic}" para médicos internos. Basa tu respuesta en la información más actualizada posible, consultando una amplia variedad de fuentes (entre 3 y 5 fuentes médicas autorizadas), dando **prioridad a las Guías de Práctica Clínica (GPC) de México / CENETEC** y complementando con guías internacionales de primer nivel (ej. AAFP, AHA, ACC, ESC, ADA, KDIGO). 
     
     Utiliza formato Markdown, sé conciso y directo al punto.
 
-    Al final de la guía, incluye una sección titulada "### Fuentes" y lista las fuentes web que utilizaste con enlaces directos, formateadas como: "- [Título de la guía o artículo](URL)".`;
+    Al final de la guía, incluye una sección titulada "### Fuentes" y lista de 3 a 5 fuentes web que utilizaste con enlaces directos, formateadas como: "- [Título de la guía o artículo](URL)".`;
     
     const response = await getAi().models.generateContent({
         model: 'gemini-3.7-flash',
@@ -420,9 +425,31 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     });
 
     const text = response.text || '';
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
+    const rawSources = response.candidates?.[0]?.groundingMetadata?.groundingChunks
         ?.map(chunk => chunk.web)
-        .filter((web): web is GroundingSource => web !== undefined && web.uri !== undefined && web.uri !== '') || [];
+        .filter((web): web is GroundingSource => Boolean(web && web.uri && web.uri.trim() !== '')) || [];
+        
+    const seenUris = new Set<string>();
+    const sources: GroundingSource[] = [];
+    for (const source of rawSources) {
+        if (!seenUris.has(source.uri)) {
+            seenUris.add(source.uri);
+            sources.push(source);
+        }
+    }
+
+    if (text) {
+        const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
+        let match;
+        while ((match = linkRegex.exec(text)) !== null) {
+            const title = match[1];
+            const uri = match[2];
+            if (!seenUris.has(uri)) {
+                seenUris.add(uri);
+                sources.push({ title, uri });
+            }
+        }
+    }
         
     return { text, sources };
 }
