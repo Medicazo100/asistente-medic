@@ -612,8 +612,33 @@ const MedicalSimulator: React.FC = () => {
         </div>;
     };
 
+    const cleanLatexFormatting = (text: string): string => {
+        if (!text) return '';
+        return text
+            // Replace common Greek letters and LaTeX math symbols
+            .replace(/\\alpha\b/g, 'α')
+            .replace(/\\beta\b/g, 'β')
+            .replace(/\\gamma\b/g, 'γ')
+            .replace(/\\delta\b/g, 'δ')
+            .replace(/\\mu\b/g, 'µ')
+            .replace(/\\pm\b/g, '±')
+            .replace(/\\leq\b/g, '≤')
+            .replace(/\\geq\b/g, '≥')
+            .replace(/\\times\b/g, '×')
+            .replace(/\\rightarrow\b/g, '→')
+            .replace(/\\leftarrow\b/g, '←')
+            .replace(/\\approx\b/g, '≈')
+            .replace(/\\neq\b/g, '≠')
+            // Strip \text{...} or \mathrm{...} or \mathbf{...}
+            .replace(/\\(?:text|mathrm|mathbf|textit|textbf)\{([^}]+)\}/g, '$1')
+            // Strip remaining lone $...$ or $$...$$ math wrappers that contain text/symbols
+            .replace(/\$\$([^$]+)\$\$/g, '$1')
+            .replace(/\$([^$\n]+)\$/g, '$1');
+    };
+
     const renderDiagnosisHtml = (markdownText: string, sources: GroundingSource[]) => {
-        let parsedHtml = marked.parse(markdownText) as string;
+        const cleanedText = cleanLatexFormatting(markdownText);
+        let parsedHtml = marked.parse(cleanedText) as string;
         parsedHtml = parsedHtml.replace(/\[(\d+)\]/g, (match, numberStr) => {
             const index = parseInt(numberStr, 10) - 1;
             const source = sources[index];

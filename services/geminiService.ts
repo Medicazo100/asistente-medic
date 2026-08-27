@@ -321,7 +321,8 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
 
     Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada (Guías de Práctica Clínica, PubMed, UpToDate).
 
-    REGLAS DE CITACIÓN Y GROUNDING:
+    REGLAS DE FORMATO Y CITACIÓN:
+    - IMPORTANTE: Redacta estrictamente en texto plano y Markdown estándar. NUNCA utilices sintaxis LaTeX ni símbolos de dólar ($ o $$) ni comandos como \text{}, \alpha, \beta para fórmulas o nombres biológicos/médicos (ej. escribe simplemente "IL-1", "IL-6", "TNF-alfa", "IL-8", etc.).
     - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3] dentro del texto redactado, especialmente en la sección de 'Fisiopatología y Correlación Clínica' y en el 'Plan de Manejo y Tratamiento', para respaldar afirmaciones fisiopatológicas, esquemas farmacológicos y recomendaciones de guías clínicas.
     - Cada número [n] debe coincidir con el orden de las fuentes y referencias consultadas.
 
