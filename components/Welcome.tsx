@@ -21,10 +21,10 @@ const Welcome: React.FC<WelcomeProps> = ({ onSectionChange }) => {
         <div className="space-y-8">
             <Card>
                 <div className="text-center flex flex-col items-center">
-                    <img src="/icon-512.png" alt="Asistente Médico Logo" className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl shadow-xl mb-4 border-2 border-blue-400 dark:border-cyan-400 hover:scale-105 transition-transform" />
+                    <img src="/icon-512.png" alt="Logo AICLINIC" className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl shadow-xl mb-4 border-2 border-blue-400 dark:border-cyan-400 hover:scale-105 transition-transform" />
                     <h2 className="text-3xl font-bold text-blue-900 dark:text-cyan-300">¡Bienvenidos, futuros colegas!</h2>
                     <p className="mt-4 text-lg text-gray-700 dark:text-gray-300 max-w-3xl mx-auto">
-                        Soy el <strong>Dr. Gabriel Méndez Ortiz</strong>, y con gran entusiasmo les presento esta herramienta, diseñada para ustedes. El año de internado es una etapa de transformación y aprendizaje inmenso. Mi objetivo es que aprovechen cada momento, fortalezcan su juicio clínico y se sientan más seguros en su práctica diaria. ¡Vamos a potenciar al máximo su año en nuestro Hospital General de Apatzingán!
+                        Soy el <strong>Dr. Gabriel Méndez Ortiz</strong>, y con gran entusiasmo les presento <strong>AICLINIC</strong>, el ecosistema de entrenamiento clínico integral diseñado especialmente para ustedes. El año de internado es una etapa de transformación y aprendizaje inmenso. Mi objetivo es que aprovechen cada momento, fortalezcan su juicio clínico y se sientan más seguros en su práctica diaria. ¡Vamos a potenciar al máximo su año en nuestro Hospital General de Apatzingán!
                     </p>
                 </div>
             </Card>

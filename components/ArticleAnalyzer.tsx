@@ -380,7 +380,7 @@ const ArticleAnalyzer: React.FC = () => {
                 </head>
                 <body>
                     <h1>Análisis de Artículo Médico</h1>
-                    <p style="text-align: center; color: #666; font-size: 10pt;">Generado por Asistente Médico IA - ${new Date().toLocaleDateString()}</p>
+                    <p style="text-align: center; color: #666; font-size: 10pt;">Generado por AICLINIC - ${new Date().toLocaleDateString()}</p>
                     <hr/>
                     ${contentHtml}
                 </body>
@@ -541,7 +541,7 @@ const ArticleAnalyzer: React.FC = () => {
                         {/* Cabecera solo visible en el PDF */}
                         <div className="p-2 rounded-xl mb-2 text-center border-b-2 border-gray-100 dark:border-slate-700">
                              <h1 className="text-2xl font-bold text-blue-900 dark:text-blue-300">Análisis de Artículo Médico</h1>
-                             <p className="text-sm text-gray-500">Generado por Asistente Médico IA</p>
+                             <p className="text-sm text-gray-500">Generado por AICLINIC</p>
                              <p className="text-xs text-gray-400 mt-1">{new Date().toLocaleDateString()}</p>
                         </div>
                         {renderAnalysisSections(analysis)}

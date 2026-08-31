@@ -41,7 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isOpe
             ></div>
 
             <aside className={`fixed top-0 left-0 h-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-md shadow-2xl border-r border-gray-200 dark:border-slate-700 w-64 z-40 transform transition-transform md:relative md:translate-x-0 md:shadow-lg flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                <div className="p-4 flex items-center justify-center gap-3 border-b border-gray-200 dark:border-slate-700 cursor-pointer h-[65px] flex-shrink-0" onClick={() => handleSectionClick(Section.Welcome)}>
+                <div className="p-4 flex items-center justify-center gap-3 border-b border-gray-200 dark:border-slate-700 cursor-pointer min-h-[68px] flex-shrink-0" onClick={() => handleSectionClick(Section.Welcome)}>
                      <button 
                         onClick={(e) => {
                             e.stopPropagation(); // Prevenir navegación al home
@@ -51,9 +51,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isOpe
                         aria-label="Aviso Legal Médico"
                         title="Ver Aviso Legal"
                      >
-                        <img src="/icon-192.png" alt="Logo Asistente Médico" className="w-8 h-8 rounded-lg shadow-md object-cover border border-blue-200 dark:border-slate-600" />
+                        <img src="/icon-192.png" alt="Logo AICLINIC" className="w-10 h-10 rounded-xl shadow-md object-cover" />
                      </button>
-                     <h2 className="text-lg font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-blue-700 to-teal-600 dark:from-cyan-300 dark:to-purple-400">Asistente Médico</h2>
+                     <h2 className="text-2xl font-black select-none flex items-center gap-1.5 tracking-normal">
+                        <span className="text-[#00b4d8] dark:text-[#00c8e6]">AI</span>
+                        <span className="text-[#132c65] dark:text-white">CLINIC</span>
+                     </h2>
                 </div>
                 
                 <nav className="p-3 flex-1 overflow-y-auto overflow-x-hidden pb-24 scrollbar-thin scrollbar-thumb-blue-200 dark:scrollbar-thumb-slate-700">

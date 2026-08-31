@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
-        name: 'Asistente Médico - Simulador Clínico',
-        short_name: 'AsistenteMédico',
-        description: 'Simulador interactivo de casos clínicos para internos de pregrado',
+        name: 'AICLINIC • Plataforma de Juicio Clínico y Simulación Médica',
+        short_name: 'AICLINIC',
+        description: 'Plataforma de juicio clínico y simulación médica interactiva para internos de pregrado y profesionales de la salud',
         theme_color: '#060d1a',
         background_color: '#060d1a',
         display: 'standalone',

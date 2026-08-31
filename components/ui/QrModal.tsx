@@ -40,7 +40,7 @@ const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
                     </svg>
                 </button>
                 <div className="text-center">
-                    <h3 className="text-lg font-bold text-blue-900 dark:text-cyan-300 mb-2">Código QR del Asistente</h3>
+                    <h3 className="text-lg font-bold text-blue-900 dark:text-cyan-300 mb-2">Código QR de AICLINIC</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Escanea este código para compartir.</p>
                     <div className="p-4 bg-gray-100 dark:bg-slate-700 rounded-lg inline-block border border-gray-200 dark:border-slate-600">
                         <img
