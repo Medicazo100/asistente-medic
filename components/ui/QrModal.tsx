@@ -6,7 +6,7 @@ interface QrModalProps {
 
 const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
     const appUrl = "https://asistente-medico-20.vercel.app/";
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(appUrl)}`;
+    const qrUrl = "/aiclinic_cinematic_poster.png";
 
     useEffect(() => {
         const handleEsc = (event: KeyboardEvent) => {
@@ -26,7 +26,7 @@ const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
             onClick={onClose}
         >
             <div
-                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-8 max-w-xs w-full relative transform transition-all duration-300 scale-100 border-2 border-blue-400 dark:border-pink-500"
+                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-8 max-w-sm w-full relative transform transition-all duration-300 scale-100 border-2 border-blue-400 dark:border-pink-500"
                 onClick={e => e.stopPropagation()}
             >
                 <button
@@ -41,11 +41,11 @@ const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
                 <div className="text-center">
                     <h3 className="text-lg font-bold text-blue-900 dark:text-cyan-300 mb-2">Código QR de AICLINIC</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Escanea este código para compartir.</p>
-                    <div className="p-4 bg-gray-100 dark:bg-slate-700 rounded-lg inline-block border border-gray-200 dark:border-slate-600">
+                    <div className="p-2 bg-slate-900/40 dark:bg-slate-900 rounded-xl inline-block border border-gray-200 dark:border-slate-600 shadow-inner">
                         <img
                             src={qrUrl}
-                            alt="Código QR"
-                            className="w-52 h-52 md:w-56 md:h-56"
+                            alt="Código QR de AICLINIC"
+                            className="w-64 h-64 md:w-72 md:h-72 object-contain rounded-lg"
                             onError={(e) => { (e.target as HTMLImageElement).alt = "Error al cargar QR."; }}
                         />
                     </div>
