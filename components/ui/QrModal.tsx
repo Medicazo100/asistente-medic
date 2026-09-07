@@ -5,8 +5,8 @@ interface QrModalProps {
 }
 
 const QrModal: React.FC<QrModalProps> = ({ onClose }) => {
-    const appUrl = "https://aiclinic-app.vercel.app/";
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${appUrl}`;
+    const appUrl = "https://asistente-medico-20.vercel.app/";
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(appUrl)}`;
 
     useEffect(() => {
         const handleEsc = (event: KeyboardEvent) => {
