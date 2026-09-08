@@ -2,12 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { marked } from 'marked';
 import { 
     generateClinicalCase, getAnamnesisFeedback, getSuggestedStudies, 
-    generateStudyResults, generateImage, getFinalDiagnosis 
+    generateStudyResults, generateImage, getFinalDiagnosis,
+    prefetchTherapeuticPlanOptions
 } from '../services/geminiService';
-import { ClinicalCase, AnamnesisTurn, LabResult, ImagingResult, GroundingSource } from '../types';
+import { 
+    ClinicalCase, AnamnesisTurn, LabResult, ImagingResult, GroundingSource,
+    TherapeuticPlanOptionsCache, PrescribedTherapeuticPlan 
+} from '../types';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
+import TherapeuticPlanSection from './TherapeuticPlanSection';
 import useLocalStorage from '../hooks/useLocalStorage';
+import { getInternetMedicalImageUrl, getInternetFallbackImage } from '../services/medicalImageRenderer';
+
 
 const getLinkText = (source: GroundingSource) => {
     if (source.title && source.title.trim() !== '') return source.title;
@@ -41,6 +48,17 @@ const MedicalSimulator: React.FC = () => {
     const [preloadedDiagnosis, setPreloadedDiagnosis] = useLocalStorage<{text: string, sources: GroundingSource[]} | null>('sim_preloadedDiagnosis', null);
     const [isPrefetchingDiagnosis, setIsPrefetchingDiagnosis] = useState(false);
 
+    // Plan Terapéutico Preloading Buffer & Prescribed Plan State
+    const [planOptionsCache, setPlanOptionsCache] = useLocalStorage<TherapeuticPlanOptionsCache | null>('sim_planOptionsCache', null);
+    const [prescribedPlan, setPrescribedPlan] = useLocalStorage<PrescribedTherapeuticPlan>('sim_prescribedPlan', {
+        tipoDieta: '',
+        justificacionDieta: '',
+        soluciones: [],
+        medicamentos: [],
+        medidasGenerales: [],
+        medidasAdicionalesEnfermeria: ''
+    });
+
     // Transient State (UI only)
     const [isLoading, setIsLoading] = useState(false);
     const [isBufferingStudies, setIsBufferingStudies] = useState(false);
@@ -49,11 +67,29 @@ const MedicalSimulator: React.FC = () => {
     const [customLab, setCustomLab] = useState('');
     const [customImaging, setCustomImaging] = useState('');
     const [loadingStudies, setLoadingStudies] = useState(new Set<string>());
+    const [showTherapeuticPlan, setShowTherapeuticPlan] = useLocalStorage<boolean>('sim_showTherapeuticPlan', false);
+
 
     const anamnesisEndRef = useRef<HTMLDivElement>(null);
     const resultsEndRef = useRef<HTMLDivElement>(null);
     const backgroundPipelinePromiseRef = useRef<Promise<{ labs: LabResult[], imaging: ImagingResult[] }> | null>(null);
     const prefetchingDiagnosisPromiseRef = useRef<Promise<{text: string, sources: GroundingSource[]}> | null>(null);
+    const planPrefetchPromiseRef = useRef<Promise<TherapeuticPlanOptionsCache> | null>(null);
+
+    const startBackgroundPlanPrefetch = (caseData: ClinicalCase, currentTopic?: string) => {
+        const promise = (async () => {
+            try {
+                const options = await prefetchTherapeuticPlanOptions(caseData, currentTopic);
+                setPlanOptionsCache(options);
+                return options;
+            } catch (err) {
+                console.error("Error en la precarga del plan terapéutico en segundo plano:", err);
+                throw err;
+            }
+        })();
+        planPrefetchPromiseRef.current = promise;
+        return promise;
+    };
 
     useEffect(() => {
         if (labResults.length > 0 || imagingResults.length > 0) {
@@ -125,7 +161,16 @@ const MedicalSimulator: React.FC = () => {
         ) {
             startBackgroundStudyPipeline(clinicalCase);
         }
-    }, [step, clinicalCase, dynamicLabsBuffer.length, dynamicImagingBuffer.length]);
+
+        if (
+            (step === 1 || step === 2) &&
+            clinicalCase &&
+            !planOptionsCache &&
+            !planPrefetchPromiseRef.current
+        ) {
+            startBackgroundPlanPrefetch(clinicalCase, topic);
+        }
+    }, [step, clinicalCase, dynamicLabsBuffer.length, dynamicImagingBuffer.length, planOptionsCache, topic]);
 
     const getFullCaseSummaryForDiagnosis = () => {
         if (!clinicalCase) return '';
@@ -184,13 +229,32 @@ const MedicalSimulator: React.FC = () => {
             setImagingResults([]);
             setFinalDiagnosis(null);
 
+            // Limpiar buffers del plan terapéutico previo
+            setPlanOptionsCache(null);
+            setPrescribedPlan({
+                tipoDieta: '',
+                justificacionDieta: '',
+                soluciones: [],
+                medicamentos: [],
+                medidasGenerales: [],
+                medidasAdicionalesEnfermeria: ''
+            });
+            setShowTherapeuticPlan(false);
+            planPrefetchPromiseRef.current = null;
+
+
             const caseData = await generateClinicalCase(topic, difficulty);
             setClinicalCase(caseData); 
             setStep(1);
 
-            // DISPARO EN SEGUNDO PLANO (Fases A, B y C) sin bloquear la interfaz
+            // DISPARO EN SEGUNDO PLANO: Estudios y Plan Terapéutico sin bloquear la interfaz
             startBackgroundStudyPipeline(caseData);
-        } catch (e) { setError('Error al generar el caso clínico.'); console.error(e); }
+            startBackgroundPlanPrefetch(caseData, topic);
+        } catch (e: any) { 
+            const errorMsg = e?.message || '';
+            setError(`Error al generar el caso clínico: ${errorMsg || 'Por favor verifica la conexión y reintenta.'}`); 
+            console.error(e); 
+        }
         setIsLoading(false);
     };
 
@@ -206,8 +270,7 @@ const MedicalSimulator: React.FC = () => {
         setIsLoading(false);
     };
 
-    const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-    const [pendingImageRequest, setPendingImageRequest] = useState<{study: string, findings: string} | null>(null);
+
 
     const handleStudySelection = async (type: 'labs' | 'imaging', study: string, checked: boolean) => {
         const isAlreadySelected = selectedStudies[type].includes(study);
@@ -259,14 +322,13 @@ const MedicalSimulator: React.FC = () => {
                     try {
                         imageUrl = await generateImage(bufferedImaging.study, bufferedImaging.findings);
                     } catch (imgErr: any) { 
-                        console.warn("No se pudo renderizar la imagen gráfica para " + bufferedImaging.study, imgErr);
-                        const rawMsg = imgErr?.message || imgErr?.error?.message || '';
-                        if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
-                            setPendingImageRequest({ study: bufferedImaging.study, findings: bufferedImaging.findings });
-                            setShowApiKeyModal(true);
-                        }
+                        console.warn("Error al generar imagen, usando respaldo de internet:", imgErr);
+                        imageUrl = getInternetMedicalImageUrl(bufferedImaging.study, bufferedImaging.findings);
                     }
-                    const finalResult: ImagingResult = { ...bufferedImaging, imageUrl };
+                    const finalResult: ImagingResult = { 
+                        ...bufferedImaging, 
+                        imageUrl: imageUrl || getInternetMedicalImageUrl(bufferedImaging.study, bufferedImaging.findings) 
+                    };
                     setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
                     setDynamicImagingBuffer(prev => prev.map(i => i.study === bufferedImaging.study ? finalResult : i));
                     setLoadingStudies(prev => { const newSet = new Set(prev); newSet.delete(study); return newSet; });
@@ -300,18 +362,18 @@ const MedicalSimulator: React.FC = () => {
                             normalizedStudy.includes(i.study.toLowerCase())
                         );
                         if (found) {
-                            let imageUrl: string | undefined;
-                            try {
-                                imageUrl = await generateImage(found.study, found.findings);
-                            } catch (imgErr: any) {
-                                console.warn("No se pudo renderizar la imagen gráfica para " + found.study, imgErr);
-                                const rawMsg = imgErr?.message || imgErr?.error?.message || '';
-                                if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
-                                    setPendingImageRequest({ study: found.study, findings: found.findings });
-                                    setShowApiKeyModal(true);
+                            let imageUrl: string | undefined = found.imageUrl;
+                            if (!imageUrl) {
+                                try {
+                                    imageUrl = await generateImage(found.study, found.findings);
+                                } catch (imgErr: any) {
+                                    imageUrl = getInternetMedicalImageUrl(found.study, found.findings);
                                 }
                             }
-                            const finalResult = { ...found, imageUrl };
+                            const finalResult = { 
+                                ...found, 
+                                imageUrl: imageUrl || getInternetMedicalImageUrl(found.study, found.findings) 
+                            };
                             setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
                             return;
                         }
@@ -332,21 +394,22 @@ const MedicalSimulator: React.FC = () => {
                 setDynamicLabsBuffer(prev => [...prev.filter(r => r.study !== study), labResult]);
             } else if (type === 'imaging' && resultData.imaging && resultData.imaging.length > 0) {
                 const result = resultData.imaging[0];
-                let imageUrl: string | undefined;
-                try {
-                    imageUrl = await generateImage(result.study, result.findings);
-                } catch (imgErr: any) { 
-                    console.warn("No se pudo renderizar la imagen para " + result.study, imgErr);
-                    const rawMsg = imgErr?.message || imgErr?.error?.message || '';
-                    if (rawMsg.includes('RESOURCE_EXHAUSTED') || rawMsg.includes('depleted') || rawMsg.includes('403') || rawMsg.includes('PERMISSION_DENIED') || rawMsg.includes('429')) {
-                         setPendingImageRequest({ study: result.study, findings: result.findings });
-                         setShowApiKeyModal(true);
+                let imageUrl: string | undefined = result.imageUrl;
+                if (!imageUrl) {
+                    try {
+                        imageUrl = await generateImage(result.study, result.findings);
+                    } catch (imgErr: any) { 
+                        imageUrl = getInternetMedicalImageUrl(result.study, result.findings);
                     }
                 }
-                const finalResult = { ...result, imageUrl };
+                const finalResult = { 
+                    ...result, 
+                    imageUrl: imageUrl || getInternetMedicalImageUrl(result.study, result.findings) 
+                };
                 setImagingResults(prev => [...prev.filter(r => r.study !== study), finalResult]);
                 setDynamicImagingBuffer(prev => [...prev.filter(r => r.study !== study), finalResult]);
             }
+
         } catch (e: any) {
             console.error(`Error al generar resultado para ${study}:`, e);
             setError(`Error al generar resultado para ${study}.`);
@@ -427,14 +490,26 @@ const MedicalSimulator: React.FC = () => {
     const resetSimulator = () => {
         backgroundPipelinePromiseRef.current = null;
         prefetchingDiagnosisPromiseRef.current = null;
+        planPrefetchPromiseRef.current = null;
         setIsBufferingStudies(false);
         setIsPrefetchingDiagnosis(false);
         setPreloadedDiagnosis(null);
+        setPlanOptionsCache(null);
+        setPrescribedPlan({
+            tipoDieta: '',
+            justificacionDieta: '',
+            soluciones: [],
+            medicamentos: [],
+            medidasGenerales: [],
+            medidasAdicionalesEnfermeria: ''
+        });
         setTopic(''); setStep(0); setClinicalCase(null); setAnamnesisHistory([]); 
         setAllAvailableStudies({ labs: [], imaging: [] }); setSelectedStudies({ labs: [], imaging: [] }); 
         setLabResults([]); setImagingResults([]); setFinalDiagnosis(null); setError(null);
         setDynamicLabsBuffer([]); setDynamicImagingBuffer([]);
+        setShowTherapeuticPlan(false);
         setDifficulty('Interno');
+
     };
 
     const handleProceedToStudies = async () => {
@@ -462,28 +537,8 @@ const MedicalSimulator: React.FC = () => {
         }
     };
 
-    const handleRetryImage = async () => {
-        if (!pendingImageRequest) return;
-        setIsLoading(true);
-        setError(null);
-        try {
-            await (window as any).aistudio.openSelectKey();
-            const imageUrl = await generateImage(pendingImageRequest.study, pendingImageRequest.findings);
-            setImagingResults(prev => [...prev.filter(r => r.study !== pendingImageRequest.study), { 
-                study: pendingImageRequest.study, 
-                findings: pendingImageRequest.findings, 
-                imageUrl 
-            }]);
-            setShowApiKeyModal(false);
-            setPendingImageRequest(null);
-        } catch (e: any) {
-            console.error("Retry failed", e);
-            setError("No se pudo generar la imagen. Asegúrate de haber seleccionado una clave válida.");
-        } finally {
-            setIsLoading(false);
-        }
-    };
     
+
     const renderCaseInfo = () => {
         if (!clinicalCase) return null;
         const vitalSignsLabels: {[key: string]: string} = { presionArterial: 'Presión Arterial', frecuenciaCardiaca: 'Frecuencia Cardiaca', frecuenciaRespiratoria: 'Frecuencia Respiratoria', temperatura: 'Temperatura', saturacionOxigeno: 'Saturación de Oxígeno' };
@@ -584,15 +639,59 @@ const MedicalSimulator: React.FC = () => {
                 </div>
             </div>}
             {imagingResults.length > 0 && <div className="p-4 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-700 shadow-sm">
-                <h4 className="font-bold text-lg mb-3 text-blue-900 dark:text-cyan-400">Estudios de Imagen</h4>
+                <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-bold text-lg text-blue-900 dark:text-cyan-400">Estudios de Imagen & Gabinete</h4>
+                    <span className="text-xs text-slate-500 dark:text-slate-400">Interpretación con Imagen Simulada</span>
+                </div>
                 <div className="space-y-4">
-                    {imagingResults.map((result, index) => <div key={index} className="p-3 bg-gray-50 dark:bg-slate-800 rounded-lg border border-gray-100 dark:border-slate-700">
-                        <h5 className="font-semibold text-gray-800 dark:text-gray-200 mb-1">{result.study}</h5>
-                        <p className="text-sm text-gray-600 dark:text-gray-300 mb-2"><strong>Hallazgos: </strong>{result.findings}</p>
-                        {result.imageUrl ? (
-                            <img src={result.imageUrl} alt={result.study} className="w-full max-w-sm mx-auto rounded-lg shadow-md mt-2" />
-                        ) : null}
-                    </div>)}
+                    {imagingResults.map((result, index) => {
+                        const imgSource = result.imageUrl || getInternetMedicalImageUrl(result.study, result.findings);
+                        const normStudy = result.study.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                        const isChest = /t[oó]rax|chest|pulmon/i.test(normStudy) && 
+                                        !/\b(tac|tc|tomograf\w*|ultra\w*|ecograf\w*|ecocardio\w*|usg|doppler|resonanc\w*|rmn?)\b/i.test(normStudy) &&
+                                        !normStudy.startsWith("eco");
+                        return (
+                            <div key={index} className="p-4 bg-gray-50 dark:bg-slate-800/80 rounded-xl border border-gray-200 dark:border-slate-700 space-y-3">
+                                <div>
+                                    <h5 className="font-bold text-slate-800 dark:text-slate-100 text-sm mb-1">{result.study}</h5>
+                                    <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                                        <strong className="text-slate-700 dark:text-slate-200">Hallazgos: </strong>{result.findings}
+                                    </p>
+                                </div>
+                                {imgSource && (
+                                    <div className={`relative bg-slate-950 rounded-xl overflow-hidden shadow-md border border-slate-700/70 mx-auto group ${isChest ? 'max-w-xs sm:max-w-sm' : 'max-w-md'}`}>
+                                        <div className="flex items-center justify-between px-3 py-1.5 bg-slate-900/90 border-b border-slate-800 text-[11px] font-mono text-cyan-400">
+                                            <span className="flex items-center gap-1.5 font-bold">
+                                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                                                {result.study}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">{isChest ? 'Proyección Vertical (PA)' : 'Imagen Clínica de Referencia'}</span>
+                                        </div>
+                                        <div className={`flex items-center justify-center bg-black/90 ${isChest ? 'min-h-[360px] sm:min-h-[420px] max-h-[520px] p-2' : ''}`}>
+                                            <img 
+                                                src={imgSource} 
+                                                alt={result.study} 
+                                                loading="lazy"
+                                                onError={(e) => {
+                                                    const fallback = getInternetFallbackImage(result.study);
+                                                    if (e.currentTarget.src !== fallback) {
+                                                        e.currentTarget.src = fallback;
+                                                    }
+                                                }}
+                                                className={isChest 
+                                                    ? "w-auto h-auto max-h-[500px] max-w-full object-contain mx-auto transition-transform duration-300 group-hover:scale-[1.02]"
+                                                    : "w-full h-auto object-contain max-h-80 mx-auto transition-transform duration-300 group-hover:scale-[1.02]"
+                                                } 
+                                            />
+                                        </div>
+                                        <div className="px-3 py-1 bg-slate-900/80 border-t border-slate-800/80 text-[10px] text-slate-400 text-center font-mono">
+                                            {isChest ? 'Tele de Tórax • Proyección Vertical Estándar' : 'Estudio Clínico • Correlación con Informe Radiológico'}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>}
             <div ref={resultsEndRef} />
@@ -607,9 +706,32 @@ const MedicalSimulator: React.FC = () => {
                 </div>
             </div>
             {(labResults.length > 0 || imagingResults.length > 0) && renderResultsPanel()}
-            {(labResults.length > 0 || imagingResults.length > 0) && !loadingStudies.size && step === 2 &&
+            
+            {/* Botón para avanzar al Plan Terapéutico — solo visible cuando hay resultados y el plan no se ha desplegado */}
+            {clinicalCase && (labResults.length > 0 || imagingResults.length > 0) && !showTherapeuticPlan && !loadingStudies.size && step === 2 && (
+                <button
+                    onClick={() => setShowTherapeuticPlan(true)}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl shadow-lg border-2 border-transparent flex items-center justify-center gap-2 transition-all"
+                >
+                    <span className="text-lg">📋</span>
+                    <span>Avanzar al Plan Terapéutico & Prescripción</span>
+                </button>
+            )}
+
+            {/* Plan Terapéutico — solo se muestra al presionar el botón */}
+            {clinicalCase && showTherapeuticPlan && (
+                <TherapeuticPlanSection
+                    clinicalCase={clinicalCase}
+                    planOptionsCache={planOptionsCache}
+                    prescribedPlan={prescribedPlan}
+                    onUpdatePlan={setPrescribedPlan}
+                />
+            )}
+
+            {(labResults.length > 0 || imagingResults.length > 0) && !loadingStudies.size && step === 2 && showTherapeuticPlan &&
             <button onClick={handleGetDiagnosis} disabled={isLoading} className="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 dark:bg-purple-600 dark:hover:bg-purple-700 shadow-lg border-2 border-transparent">{isLoading ? 'Procesando...' : 'Obtener Diagnóstico Final'}</button>}
         </div>;
+
     };
 
     const cleanLatexFormatting = (text: string): string => {
@@ -742,27 +864,6 @@ const MedicalSimulator: React.FC = () => {
     };
 
     return <Card className="max-w-4xl mx-auto">
-        {showApiKeyModal && (
-            <div className="fixed inset-0 bg-black/60 z-[70] flex justify-center items-center p-4 backdrop-blur-sm">
-                <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 max-w-md w-full shadow-2xl border-2 border-blue-500">
-                    <h3 className="text-xl font-bold mb-4">Clave de API Requerida</h3>
-                    <p className="text-gray-600 dark:text-gray-400 mb-6">
-                        Para generar imágenes médicas detalladas, se requiere una clave de API con facturación habilitada (Plan Pay-as-you-go).
-                    </p>
-                    <div className="flex flex-col gap-3">
-                        <button onClick={handleRetryImage} className="w-full bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700">
-                            Seleccionar Clave y Reintentar
-                        </button>
-                        <button onClick={() => setShowApiKeyModal(false)} className="w-full bg-gray-200 text-gray-700 font-bold py-3 rounded-xl hover:bg-gray-300 dark:bg-slate-700 dark:text-gray-300">
-                            Continuar sin Imagen
-                        </button>
-                    </div>
-                    <p className="mt-4 text-xs text-gray-500 text-center">
-                        Más información en <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-blue-500 underline">ai.google.dev/gemini-api/docs/billing</a>
-                    </p>
-                </div>
-            </div>
-        )}
         <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-blue-800 dark:text-cyan-300">🩺 Simulador de Casos Clínicos</h2>
             {step > 0 && <button onClick={resetSimulator} className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-slate-600 dark:hover:bg-slate-500 font-semibold py-1 px-3 rounded-lg border border-gray-300 dark:border-slate-500">Nuevo Caso</button>}

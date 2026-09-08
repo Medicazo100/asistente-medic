@@ -10,6 +10,36 @@ const NoteGuide: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [content, setContent] = useState<{ guide: string; template: string } | null>(null);
     const [copySuccess, setCopySuccess] = useState(false);
+    const [importedPlan, setImportedPlan] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem('sim_soap_plan_nom004');
+        } catch {
+            return null;
+        }
+    });
+
+    const handleInsertImportedPlan = () => {
+        if (!importedPlan) return;
+        if (content) {
+            setContent(prev => prev ? {
+                ...prev,
+                template: prev.template + '\n\n' + importedPlan
+            } : null);
+        } else {
+            setContent({
+                guide: `### Plan Terapéutico Hospitalario Trasladado\n\nEste plan fue formulado y estructurado conforme a la **NOM-004-SSA3-2012** desde el módulo de Simulación Clínica.\n\nPuedes editar los campos en la plantilla editable a la izquierda.`,
+                template: importedPlan
+            });
+            if (!topic) setTopic('Plan Hospitalario Trasladado (Simulación)');
+        }
+    };
+
+    const handleClearImportedPlan = () => {
+        try {
+            localStorage.removeItem('sim_soap_plan_nom004');
+        } catch {}
+        setImportedPlan(null);
+    };
 
     const handleGenerate = async () => {
         if (!topic.trim()) {
@@ -62,6 +92,31 @@ const NoteGuide: React.FC = () => {
             </div>
             
             {error && <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">{error}</div>}
+            
+            {importedPlan && (
+                <div className="mb-4 p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-700 rounded-xl flex items-center justify-between flex-wrap gap-2 animate-fade-in shadow-2xs">
+                    <div className="flex items-center gap-2 text-xs md:text-sm text-emerald-900 dark:text-emerald-200">
+                        <span className="text-base">📋</span>
+                        <span><strong>Plan hospitalario disponible:</strong> Se detectaron órdenes médicas transferidas desde el simulador clínico conforme a la NOM-004.</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={handleInsertImportedPlan}
+                            className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1.5 px-3 rounded-lg transition-colors"
+                        >
+                            Cargar en Nota Editable
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleClearImportedPlan}
+                            className="text-xs text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 px-2 py-1"
+                        >
+                            Descartar
+                        </button>
+                    </div>
+                </div>
+            )}
             
             <div className="space-y-4 mb-6">
                 <p className="text-gray-600 dark:text-gray-400">Ingresa una patología para generar una plantilla editable y una guía de llenado.</p>

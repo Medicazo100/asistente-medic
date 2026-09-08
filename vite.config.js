@@ -1,11 +1,15 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
-export default defineConfig({
-  plugins: [
-    react(),
-    VitePWA({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY || ''
+
+  return {
+    plugins: [
+      react(),
+      VitePWA({
       registerType: 'autoUpdate',
       includeAssets: ['apple-touch-icon.png', 'icon-192.png', 'icon-512.png'],
       manifest: {
@@ -67,6 +71,15 @@ export default defineConfig({
               expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
               cacheableResponse: { statuses: [0, 200] }
             }
+          },
+          {
+            urlPattern: /^https:\/\/images\.weserv\.nl\/.*/i,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'medical-images-cache',
+              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
           }
         ]
       },
@@ -76,16 +89,23 @@ export default defineConfig({
       }
     })
   ],
-  define: {
-    'process.env.GEMINI_API_KEY': JSON.stringify(process.env.GEMINI_API_KEY),
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY),
-  },
-  build: {
-    target: "esnext",
-  },
-  optimizeDeps: {
-    esbuildOptions: {
+    define: {
+      'process.env.GEMINI_API_KEY': JSON.stringify(apiKey),
+      'process.env.API_KEY': JSON.stringify(apiKey),
+      'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey),
+    },
+    server: {
+      host: true,
+      port: 5173,
+    },
+
+    build: {
       target: "esnext",
     },
-  },
-})
+    optimizeDeps: {
+      esbuildOptions: {
+        target: "esnext",
+      },
+    },
+  };
+});

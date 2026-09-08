@@ -17,6 +17,8 @@ new proyec
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+start_dev.bat
 
 # Editor directories and files
 .vscode/*

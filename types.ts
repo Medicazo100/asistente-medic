@@ -57,3 +57,68 @@ export interface GroundingSource {
     uri: string;
     title: string;
 }
+
+export interface SuggestedSolutionOption {
+    label: string;
+    tipo: string;
+    volumen: number;
+    tiempo: string;
+    via: string;
+}
+
+export interface SuggestedDrugOption {
+    familia: string;
+    farmaco: string;
+    dosis: string;
+    unidad: string;
+    via: string;
+    frecuencia: string;
+    justificacionGPC?: string;
+}
+
+export interface TherapeuticPlanOptionsCache {
+    dietasSugeridas: string[];
+    solucionesSugeridas: SuggestedSolutionOption[];
+    familiasMedicamentos: SuggestedDrugOption[];
+    medidasSugeridas: string[];
+}
+
+export interface PrescribedSolution {
+    id: string;
+    tipo: string;
+    volumen: number;
+    tiempo: string;
+    via: string;
+}
+
+export interface PrescribedMedication {
+    id: string;
+    familia?: string;
+    nombre: string;
+    dosis: string;
+    unidad: string;
+    via: string;
+    frecuencia: string;
+    justificacionGPC?: string;
+}
+
+export interface PrescribedDiet {
+    id: string;
+    nombre: string;
+    via: string;
+}
+
+export interface PrescribedTherapeuticPlan {
+    tipoDieta: string;
+    dietas?: PrescribedDiet[];
+    justificacionDieta: string;
+    soluciones: PrescribedSolution[];
+    medicamentos: PrescribedMedication[];
+    medidasGenerales: string[];
+    medidasAdicionalesEnfermeria: string;
+}
+
+export interface TherapeuticTutorFeedback {
+    feedbackText: string;
+    evaluatedAt: string;
+}
