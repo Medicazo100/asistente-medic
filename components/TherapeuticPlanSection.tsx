@@ -94,13 +94,25 @@ const COMMON_SOLUTION_TYPES = [
     'Solución Salina 0.45%'
 ];
 
-const COMMON_SOLUTION_TIMES = [
-    'Para 24 horas',
-    'Para 12 horas',
-    'Para 8 horas',
-    'Para 6 horas',
+export const normalizeSolutionTime = (tiempo?: string): string => {
+    if (!tiempo) return 'Para 24 horas';
+    const t = tiempo.trim().toLowerCase();
+    if (t.includes('30') || t.includes('treinta')) return 'Carga en 30 minutos';
+    if (t.includes('1 hora') || t.includes('1 h') || t.includes('60 min') || t.includes('una hora') || t.includes('bolo en 1') || t.includes('carga 1')) return 'Carga en 1 hora';
+    if (t.includes('6 h') || t.includes('6 horas') || t.includes('seis')) return 'Para 6 horas';
+    if (t.includes('8 h') || t.includes('8 horas') || t.includes('ocho')) return 'Para 8 horas';
+    if (t.includes('12 h') || t.includes('12 horas') || t.includes('doce')) return 'Para 12 horas';
+    if (t.includes('24 h') || t.includes('24 horas') || t.includes('veinticuatro')) return 'Para 24 horas';
+    return tiempo;
+};
+
+export const COMMON_SOLUTION_TIMES = [
+    'Carga en 30 minutos',
     'Carga en 1 hora',
-    'Carga en 30 minutos'
+    'Para 6 horas',
+    'Para 8 horas',
+    'Para 12 horas',
+    'Para 24 horas'
 ];
 
 const DOSE_UNITS = ['mg', 'g', 'mcg', 'UI', 'mL', 'gotas'];
@@ -272,8 +284,14 @@ export const TherapeuticPlanSection: React.FC<TherapeuticPlanSectionProps> = ({
             };
         }
 
-        const isError = feedbackText.includes('❌') || /elige otra opci[oó]n|incorrect[ao]|inadecuad[ao]|contraindicad[ao]/i.test(feedbackText);
-        const isWarning = !isError && (feedbackText.includes('⚠️') || /ajusta tu prescripci[oó]n|calibrar|precauci[oó]n/i.test(feedbackText));
+        // Extraer la sección del dictamen final en la "Perla del Pase de Visita"
+        // para evitar falsos positivos provocados por el icono "⚠️ ¿Por qué NO?" del contra-argumento
+        const perlaMatch = feedbackText.match(/Perla del Pase de Visita:?\s*([\s\S]*)/i);
+        const verdictSection = perlaMatch ? perlaMatch[1] : feedbackText;
+
+        const isError = verdictSection.includes('❌') || /elige otra opci[oó]n|incorrect[ao]|inadecuad[ao]|contraindicad[ao]/i.test(verdictSection);
+        const isCorrect = !isError && (verdictSection.includes('✅') || /respuesta es correcta|excelente elecci[oó]n|prescripci[oó]n aprobada/i.test(verdictSection));
+        const isWarning = !isError && !isCorrect && (verdictSection.includes('⚠️') || /ajusta tu prescripci[oó]n|calibrar|precauci[oó]n/i.test(verdictSection));
 
         if (isError) {
             return {
@@ -415,12 +433,13 @@ export const TherapeuticPlanSection: React.FC<TherapeuticPlanSectionProps> = ({
 
     // Handlers for Block 2: Soluciones (activación manual del tutor mediante botón)
     const handleAddSuggestedSolution = (suggestion: SuggestedSolutionOption) => {
+        const normalizedTiempo = normalizeSolutionTime(suggestion.tiempo);
         const newSolution: PrescribedSolution = {
             id: 'sol-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7),
             tipo: suggestion.tipo,
             volumen: suggestion.volumen,
-            tiempo: suggestion.tiempo,
-            via: suggestion.via
+            tiempo: normalizedTiempo,
+            via: suggestion.via || 'IV periférica'
         };
         // Sustituir o establecer como solución principal para evitar duplicidad de infusiones y sobrecarga hídrica accidental.
         // Si el interno necesita expresamente otra línea venosa, puede usar "+ Agregar otra solución".
@@ -889,7 +908,7 @@ export const TherapeuticPlanSection: React.FC<TherapeuticPlanSectionProps> = ({
                                 const isSelected = prescribedPlan.soluciones.length === 1 &&
                                     prescribedPlan.soluciones[0].tipo === sol.tipo &&
                                     prescribedPlan.soluciones[0].volumen === sol.volumen &&
-                                    prescribedPlan.soluciones[0].tiempo === sol.tiempo;
+                                    normalizeSolutionTime(prescribedPlan.soluciones[0].tiempo) === normalizeSolutionTime(sol.tiempo);
                                 return (
                                     <button
                                         key={idx}
@@ -951,10 +970,13 @@ export const TherapeuticPlanSection: React.FC<TherapeuticPlanSectionProps> = ({
                                 <div className="sm:col-span-3">
                                     <label className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 uppercase">Tiempo / Infusión</label>
                                     <select
-                                        value={sol.tiempo}
+                                        value={normalizeSolutionTime(sol.tiempo)}
                                         onChange={e => handleUpdateSolution(sol.id, 'tiempo', e.target.value)}
                                         className="w-full text-xs px-2 py-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded"
                                     >
+                                        {!COMMON_SOLUTION_TIMES.includes(normalizeSolutionTime(sol.tiempo)) && (
+                                            <option value={sol.tiempo}>{sol.tiempo}</option>
+                                        )}
                                         {COMMON_SOLUTION_TIMES.map(tm => (
                                             <option key={tm} value={tm}>{tm}</option>
                                         ))}

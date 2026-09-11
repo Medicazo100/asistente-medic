@@ -965,50 +965,52 @@ Omitir soluciones parenterales en ayuno o ante pérdidas patológicas agudas pre
     }
 
     const ctx = caseContext.toLowerCase();
-    // Check hemodynamics
-    const isShockOrHypotension = /choque|shock|neumot[oó]rax|tensi[oó]n|hipoten|sepsis|politrauma|hemorr|taquicardia severa|inestabilidad hemodin[aá]mica/i.test(ctx) ||
-        /pa (6\d|7\d|8\d)\//i.test(ctx) ||
-        /tas\s*[:<]?\s*(6\d|7\d|8\d)/i.test(ctx);
+    // Check hemodynamics and acute conditions requiring rapid volume resuscitation
+    const isShockOrHypotension = /choque|shock|neumot[oó]rax|tensi[oó]n|hipoten|sepsis|politrauma|hemorr|taquicardia severa|inestabilidad hemodin[aá]mica|cetoacidosis|cad|hiperosmolar|cetoacid|deshidrataci[oó]n (severa|grave)/i.test(ctx) ||
+        /pa (5\d|6\d|7\d|8\d)\//i.test(ctx) ||
+        /tas\s*[:<]?\s*(5\d|6\d|7\d|8\d)/i.test(ctx);
     const isHeartFailureOrEdema = /insuficiencia card[ií]aca|falla card|edema pulmonar|edema agudo|estertores crepitantes/i.test(ctx);
     const isTBI = /traumatismo craneo|tce|edema cerebral|hipertensi[oó]n intracraneal/i.test(ctx);
 
     const hasDextrose = plan.soluciones.some(s => /mixta|glucosad|dextros/i.test(s.tipo));
     const hasRapidBolus = plan.soluciones.some(s => /carga|30 min|1 h|1 hora/i.test(s.tiempo) || /carga/i.test(s.tipo));
-    const isSlowMaintenance = plan.soluciones.every(s => /24 h|24 horas|12 h|12 horas/i.test(s.tiempo)) && !hasRapidBolus;
+    const isSlowMaintenance = plan.soluciones.every(s => /24 h|24 horas|12 h|12 horas|8 h|8 horas/i.test(s.tiempo)) && !hasRapidBolus;
     const hasIsotonicCrystalloid = plan.soluciones.some(s => /hartmann|fisiol[oó]gica|ringer/i.test(s.tipo));
 
     if (isShockOrHypotension) {
         if (hasDextrose) {
             return `✅ **¿Por qué SÍ? (Argumento):**
-En inestabilidad hemodinámica y choque, la reanimación prioritaria exige cristaloides isotónicos balanceados (Solución Hartmann o Fisiológica 0.9%) para restaurar inmediatamente la precarga y perfusión tisular.
+En inestabilidad hemodinámica, cetoacidosis o choque, la reanimación prioritaria exige cristaloides isotónicos balanceados (Solución Hartmann o Fisiológica 0.9%) para restaurar inmediatamente la precarga y perfusión tisular.
 
 ⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
-Las soluciones mixtas o glucosadas están formalmente contraindicadas en choque: la glucosa se metaboliza velozmente a agua libre que difunde al espacio extravascular (~90% fuga al intersticio), no restituye la volemia efectiva, agrava el edema y desencadena hiperglucemia de estrés con diuresis osmótica contraproducente.
+Las soluciones mixtas o glucosadas están formalmente contraindicadas en choque y descompensación aguda: la glucosa se metaboliza velozmente a agua libre que difunde al espacio extravascular (~90% fuga al intersticio), no restituye la volemia efectiva, agrava el edema y desencadena hiperglucemia severa con diuresis osmótica contraproducente.
 
 💡 **Perla del Pase de Visita:**
-❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. En choque o hipotensión severa, la Solución Mixta o Glucosada está contraindicada porque no expande el volumen intravascular efectivo y una velocidad para 24 horas (41 mL/h) es letalmente insuficiente para reanimar. Cambia a la opción recomendada: Carga rápida de Solución Hartmann 500 a 1000 mL para 30 minutos a 1 hora (o Solución Fisiológica 0.9%) para restaurar de inmediato la presión de perfusión tisular.`;
+❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. En choque, cetoacidosis o hipotensión severa, la Solución Mixta o Glucosada está contraindicada porque no expande el volumen intravascular efectivo y una velocidad para 24 horas (41 mL/h) es letalmente insuficiente para reanimar. Cambia a la opción recomendada: Carga rápida de Solución Hartmann o Fisiológica 0.9% 1000 mL para 1 hora para restaurar de inmediato la presión de perfusión tisular.`;
         }
 
         if (isSlowMaintenance) {
+            const solPrescrita = plan.soluciones[0];
             return `✅ **¿Por qué SÍ? (Argumento):**
-Los cristaloides isotónicos balanceados restauran la volemia; sin embargo, en inestabilidad hemodinámica el volumen debe infundirse en bolo rápido para impactar el retorno venoso y el gasto cardiaco.
+El cristaloide isotónico seleccionado (${solPrescrita.tipo}) es el indicado para la restitución del volumen intravascular; sin embargo, en cuadros de choque, cetoacidosis diabética o inestabilidad hemodinámica, el volumen debe infundirse en CARGA RÁPIDA (en 1 hora o en 30 minutos).
 
 ⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
-Prescribir una velocidad lenta de mantenimiento ("para 24 horas" = ~41 mL/h) en choque o hipotensión es letalmente insuficiente: el paciente continuará en isquemia tisular y choque irreversible antes de recibir el volumen necesario.
+Prescribir una velocidad lenta de mantenimiento ("${solPrescrita.tiempo}" = ~41 mL/h) en un paciente con inestabilidad hemodinámica, choque o cetoacidosis diabética perpetúa el colapso circulatorio y la hipoperfusión renal antes de recibir volumen efectivo.
 
 💡 **Perla del Pase de Visita:**
-❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. La infusión para 24 horas es insuficiente para revertir el choque o hipotensión en urgencias. Cambia a la opción recomendada: Carga rápida de Solución Hartmann 500 a 1000 mL para 30 minutos a 1 hora para lograr una reanimación hemodinámica agresiva y guiada por metas.`;
+❌ **Elige otra opción:** Has indicado ${solPrescrita.tipo} ${solPrescrita.volumen} mL con un tiempo de infusión de "${solPrescrita.tiempo}". Esta velocidad de infusión lenta (~41 mL/h) es letalmente insuficiente para la reanimación aguda de este paciente. En esta fase se requiere una CARGA RÁPIDA (Carga en 1 hora o Carga en 30 minutos). Cambia el Tiempo / Infusión a: Carga en 1 hora para restaurar oportunamente la precarga y perfusión tisular.`;
         }
 
         if (hasIsotonicCrystalloid && hasRapidBolus) {
+            const solPrescrita = plan.soluciones[0];
             return `✅ **¿Por qué SÍ? (Argumento):**
-La carga rápida con cristaloide isotónico balanceado (Hartmann o Fisiológica 0.9%) expande de inmediato el volumen circulante efectivo, optimiza el volumen sistólico por mecanismo de Frank-Starling y rescata la perfusión tisular.
+La carga rápida con cristaloide isotónico balanceado (${solPrescrita.tipo} a ${solPrescrita.volumen} mL en ${solPrescrita.tiempo}) expande de inmediato el volumen circulante efectivo, optimiza el volumen sistólico por mecanismo de Frank-Starling y rescata la perfusión tisular.
 
 ⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
-La fluidoterapia en choque debe titularse de forma dinámica: vigilar uresis horaria (> 0.5-1 mL/kg/h), descenso del lactato y ausencia de estertores crepitantes pulmonares para evitar la sobrecarga iatrogénica posterior.
+La fluidoterapia en choque o cetoacidosis debe titularse de forma dinámica: vigilar uresis horaria (> 0.5-1 mL/kg/h), descenso del lactato/cetonas y ausencia de estertores crepitantes pulmonares para evitar la sobrecarga iatrogénica posterior.
 
 💡 **Perla del Pase de Visita:**
-✅ **¡Tu respuesta es correcta!** Excelente indicación de carga rápida con cristaloide isotónico para reanimación en fase aguda. Todo bolo se reevalúa inmediatamente al término de la infusión auscultando campos pulmonares y verificando tensión arterial y uresis.`;
+✅ **¡Tu respuesta es correcta!** Excelente indicación de fluidoterapia de reanimación: el bolo de ${solPrescrita.volumen} mL de cristaloide isotónico en ${solPrescrita.tiempo} expande el volumen circulante efectivo de forma inmediata para restaurar la precarga y perfusión tisular sin provocar edema osmótico.`;
         }
     }
 
@@ -1082,7 +1084,11 @@ export async function validateTherapeuticPlanWithTutor(
 - Justificación clínica: ${plan.justificacionDieta || 'Sin justificación registrada'}
 
 2. ESQUEMA DE SOLUCIONES Y ELECTRÓLITOS:
-${plan.soluciones.length > 0 ? plan.soluciones.map((s, idx) => `  ${idx + 1}. ${s.tipo} - ${s.volumen} mL, Vía: ${s.via}, Ritmo/Tiempo: ${s.tiempo}`).join('\n') : '  - Sin soluciones prescritas'}
+${plan.soluciones.length > 0 ? plan.soluciones.map((s, idx) => `  [Solución ${idx + 1}]
+   - Tipo de Solución: "${s.tipo}"
+   - Volumen: ${s.volumen} mL
+   - Vía: ${s.via}
+   - RITMO / TIEMPO EXACTO DE INFUSIÓN ELEGIDO POR EL INTERNO: "${s.tiempo}" (¡ATENCIÓN TUTOR!: Evalúa obligatoriamente si este tiempo "${s.tiempo}" es una carga rápida de 30-60 min o una infusión lenta de 8-24 horas, y calcula los mL/hora reales)`).join('\n') : '  - Sin soluciones prescritas'}
 
 3. ESQUEMA FARMACOLÓGICO (MEDICAMENTOS CON POSOLOGÍA GPC):
 ${plan.medicamentos.length > 0 ? plan.medicamentos.map((m, idx) => `  ${idx + 1}. ${m.nombre} - ${m.dosis} ${m.unidad}, Vía: ${m.via}, Frecuencia: ${m.frecuencia}${m.familia ? ` (Familia: ${m.familia})` : ''}`).join('\n') : '  - Sin medicamentos prescritos'}
@@ -1108,27 +1114,35 @@ ENFOQUE OBLIGATORIO: Esta evaluación es EXCLUSIVA para el sub-apartado: "${targ
 No menciones otros apartados. Prohibido dar discursos largos, saludos formales de relleno o despedidas.
 
 ${focusBlock === 'soluciones' ? `REGLAS DE EVALUACIÓN CLÍNICA Y HEMODINÁMICA PARA SOLUCIONES Y FLUIDOTERAPIA:
-Como Médico Especialista y Tutor Docente, debes evaluar con RIGOR CLÍNICO Y FARMACOLÓGICO la prescripción del interno contrastando los 3 parámetros:
+Como Médico Especialista y Tutor Docente, debes evaluar con RIGOR CLÍNICO Y FARMACOLÓGICO la prescripción del interno contrastando minuciosamente:
 1) TIPO DE SOLUCIÓN (Hartmann, Fisiológica 0.9%, Mixta, Glucosada al 5%/10%, Salina 0.45%, etc.)
 2) VOLUMEN TOTAL (mL)
-3) TIEMPO Y VELOCIDAD DE INFUSIÓN (Carga rápida en 30-60 min vs. infusión para 8, 12 o 24 h vs. KVO / restricción)
+3) TIEMPO Y VELOCIDAD DE INFUSIÓN EXACTA INDICADA POR EL INTERNO (ej. "Para 24 horas" = ~41 mL/h vs. "Para 12 horas" = ~83 mL/h vs. "Carga en 1 hora" = 1000 mL/h vs. "Carga en 30 minutos" = 2000 mL/h)
 frente al estado hemodinámico, comorbilidades y patología específica del caso clínico.
+
+¡REGLA ANTI-ALUCINACIÓN OBLIGATORIA PARA EL TUTOR DOCENTE!:
+¡PROHIBIDO asumir, inventar o felicitar al interno diciendo que indicó "un bolo en 1 hora" o "carga rápida" si en la orden médica dice textualmente "Para 24 horas", "Para 12 horas" o "Para 8 horas"!
+Verifica con exactitud el valor literal en "RITMO / TIEMPO EXACTO DE INFUSIÓN ELEGIDO POR EL INTERNO".
 
 CATEGORÍAS DE PACIENTE Y CRITERIOS DE EVALUACIÓN:
 
-1. PACIENTE EN CHOQUE, HIPOTENSIÓN SEVERA (TAS < 90 mmHg o TAM < 65 mmHg), NEUMOTÓRAX A TENSIÓN, SEPSIS GRAVE, TRAUMA / HEMORRAGIA O DESHIDRATACIÓN GRAVE:
-   - OBJETIVO TERAPÉUTICO: Reanimación hídrica agresiva con cristaloide isotónico balanceado para restaurar el gasto cardiaco y la presión de perfusión tisular.
-   - SOLUCIÓN Y VELOCIDAD CORRECTAS: Carga rápida de Solución Hartmann (o Ringer Lactato / Fisiológica 0.9%) de 500 a 1000 mL a pasar en 30 a 60 minutos (20-30 mL/kg).
-   - CONDUCTAS QUE MERECEN OBLIGATORIAMENTE "❌ **Elige otra opción:**":
-     * PRESCRIBIR SOLUCIONES CON GLUCOSA (Solución Mixta, Solución Glucosada 5% o 10%): ¡TOTALMENTE INADECUADO Y CONTRAINDICADO! En choque o reanimación aguda, la glucosa se metaboliza de inmediato generando agua libre hipotónica que difunde al espacio extravascular/intersticial (sólo ~8-10% permanece intravascular), NO expande el volumen circulante efectivo, agrava el edema tisular/pulmonar y desencadena hiperglucemia por estrés y glucosuria osmótica.
-     * PRESCRIBIR VELOCIDAD LENTA DE MANTENIMIENTO (ej. "para 24 horas" = ~41 mL/h o "para 12 horas" sin carga previa): Iniciar 1000 mL para 24 h en un paciente chocado o hipotenso es letalmente insuficiente; el paciente entrará en fallo multiorgánico o paro por hipoperfusión sostenida antes de recibir volumen suficiente.
-     -> DICTAMEN OBLIGATORIO:
-     💡 **Perla del Pase de Visita:**
-     ❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. En pacientes en choque o con inestabilidad hemodinámica severa, las soluciones glucosadas/mixtas están contraindicadas porque no expanden el volumen intravascular y elevan la glucemia por estrés, además de que una infusión para 24 horas (41 mL/h) es letalmente insuficiente para reanimar. Cambia a la opción recomendada: Carga rápida de Solución Hartmann (o Solución Fisiológica 0.9%) de 500 a 1000 mL para 30 minutos a 1 hora para restituir de inmediato el volumen circulante efectivo y la perfusión orgánica.
-   - SI EL INTERNO PRESCRIBIÓ Solución Hartmann o Fisiológica 0.9% en carga rápida (500 a 1000 mL en 30-60 min):
-     -> DICTAMEN:
-     💡 **Perla del Pase de Visita:**
-     ✅ **¡Tu respuesta es correcta!** Excelente elección de fluidoterapia de reanimación: el bolo rápido de cristaloide isotónico balanceado expande el volumen circulante efectivo de forma inmediata para restaurar la precarga y perfusión tisular sin provocar edema osmótico.
+1. PACIENTE EN CETOACIDOSIS DIABÉTICA (CAD), ESTADO HIPEROSMOLAR, CHOQUE (SÉPTICO, HIPOVOLÉMICO, OBSTRUCTIVO, DISTRIBUTIVO), HIPOTENSIÓN SEVERA (TAS < 90 mmHg o TAM < 65 mmHg), NEUMOTÓRAX A TENSIÓN O DESHIDRATACIÓN GRAVE:
+   - OBJETIVO TERAPÉUTICO: Reanimación hídrica agresiva inicial con cristaloide isotónico (Solución Hartmann o Fisiológica 0.9%) en CARGA RÁPIDA (500 a 1000 mL para pasar en 30 a 60 minutos) para expandir inmediatamente el volumen circulante efectivo y restaurar la presión de perfusión tisular.
+   - EVALUACIÓN DEL TIEMPO / VELOCIDAD DE INFUSIÓN (CRÍTICO):
+     * SI EL INTERNO ELIGIÓ CRISTALOIDE ISOTÓNICO (ej. Solución Fisiológica 0.9% o Hartmann) PERO INDICÓ VELOCIDAD LENTA DE MANTENIMIENTO ("Para 24 horas", "Para 12 horas", "Para 8 horas"):
+       -> DICTAMEN OBLIGATORIO: "❌ **Elige otra opción:**"
+       -> RECHAZO EXPLÍCITO Y ESPECÍFICO:
+          Debes señalar con claridad que aunque el cristaloide es el correcto, la velocidad para 24 horas (~41 mL/h) es letalmente tardía e insuficiente para reanimar un paciente agudo descompensado/deshidratado, y que requiere una carga rápida.
+          Ejemplo obligatorio de dictamen:
+          💡 **Perla del Pase de Visita:**
+          ❌ **Elige otra opción:** Has indicado [Nombre de la Solución] [Volumen] mL pero con un tiempo de infusión de "[Tiempo elegido, ej. Para 24 horas]". Esta velocidad lenta (~41 mL/h) es letalmente insuficiente para la reanimación inicial de este paciente con [diagnóstico/cetoacidosis/choque]. El tipo de cristaloide es adecuado, pero requiere una CARGA RÁPIDA. Cambia el Tiempo / Infusión a: Carga en 1 hora (o Carga en 30 minutos) para expandir oportunamente el volumen intravascular y restaurar la perfusión orgánica.
+     * SI EL INTERNO ELIGIÓ SOLUCIONES CON GLUCOSA (Solución Mixta, Solución Glucosada 5% o 10%):
+       -> DICTAMEN OBLIGATORIO: "❌ **Elige otra opción:**"
+       -> En cetoacidosis diabética o hiperglucemia agrava la hiperosmolaridad y la deshidratación por diuresis osmótica; en choque no expande el espacio intravascular (~90% fuga al intersticio).
+     * SI EL INTERNO ELIGIÓ CRISTALOIDE ISOTÓNICO (Hartmann o Fisiológica 0.9%) Y ADEMÁS ELIGIÓ VELOCIDAD RÁPIDA ("Carga en 1 hora" o "Carga en 30 minutos"):
+       -> DICTAMEN:
+          💡 **Perla del Pase de Visita:**
+          ✅ **¡Tu respuesta es correcta!** Excelente elección de fluidoterapia de reanimación: el bolo rápido de [Volumen] mL de cristaloide isotónico en [Tiempo] expande el volumen circulante efectivo de forma inmediata para restaurar la precarga y perfusión tisular sin provocar edema osmótico.
 
 2. PACIENTE CON INSUFICIENCIA CARDIACA DESCOMPENSADA, EDEMA AGUDO DE PULMÓN O FALLA RENAL OLIGÚRICA/ANÚRICA:
    - OBJETIVO TERAPÉUTICO: Restricción hídrica estricta (KVO / mantener vía permeable a 250 mL en 24 h o < 500 mL/día).
