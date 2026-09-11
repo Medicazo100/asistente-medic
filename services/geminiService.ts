@@ -695,7 +695,25 @@ ${topicHint ? `- Contexto / Diagnóstico presuntivo: ${topicHint}` : ''}
 
 REGLAS DE GENERACIÓN DE OPCIONES (CANON HOSPITALARIO):
 1. dietasSugeridas: Array de 3-4 opciones contextualizadas al estado hemodinámico, metabólico y respiratorio (ej. si hay taquipnea FR > 28 o dificultad respiratoria, incluir "Ayuno por taquipnea / riesgo de broncoaspiración"; si el paciente tiene diabetes o hiperglucemia, incluir "Dieta fraccionada para diabético"; si es hipertenso "Dieta hiposódica normocalórica"; si está estable "Dieta blanda / normal").
-2. solucionesSugeridas: Array de 3-4 esquemas de fluidoterapia de primera línea basados en Guías de Práctica Clínica hospitalarias que correspondan exactamente a lo que el tutor docente validará como acertado (deben incluir: 1) Solución Hartmann 1000 mL para 12 h como mantenimiento de primera línea, 2) Solución Fisiológica 0.9% 1000 mL para 24 h como aporte basal, 3) Solución Mixta 1000 mL para 24 h si requiere aporte calórico basal en ayuno, y 4) Carga rápida Solución Hartmann o Fisiológica 0.9% 500 mL en 1 h si hay deshidratación o hipotensión).
+2. solucionesSugeridas: Array de 3-4 esquemas de fluidoterapia de primera línea estrictamente adaptados a la hemodinamia y fisiopatología del caso:
+   - SI EL PACIENTE PRESENTA CHOQUE, HIPOTENSIÓN SEVERA (TAS < 90 o TAM < 65), NEUMOTÓRAX A TENSIÓN, SEPSIS, TRAUMA O PÉRDIDAS AGUDAS:
+     Genera ÚNICAMENTE opciones de reanimación activa con cristaloides isotónicos balanceados:
+     1) "Carga rápida Solución Hartmann 1000 mL para 30-60 min (reanimación hemodinámica)"
+     2) "Carga rápida Solución Hartmann 500 mL para 30 min (reanimación inicial)"
+     3) "Carga rápida Solución Fisiológica 0.9% 1000 mL para 1 hora"
+     4) "Solución Hartmann 1000 mL para 12 h (mantenimiento post-reanimación)"
+     PROHIBIDO generar Solución Mixta o Glucosada como sugerencia en pacientes chocados o hipotensos.
+   - SI EL PACIENTE PRESENTA EDEMA AGUDO DE PULMÓN, INSUFICIENCIA CARDIACA O FALLA RENAL OLIGÚRICA:
+     Genera opciones de restricción:
+     1) "Solución Fisiológica 0.9% 250 mL para 24 h (vía permeable / KVO)"
+     2) "Solución Glucosada 5% 250 mL para 24 h (vía permeable / KVO)"
+     3) "Restricción hídrica estricta (< 500 mL en 24 h)"
+   - SI EL PACIENTE ESTÁ ESTABLE (NORMOTENSO, EN AYUNO BASAL):
+     Genera esquemas de mantenimiento:
+     1) "Solución Hartmann 1000 mL para 12 h (mantenimiento de primera línea)"
+     2) "Solución Fisiológica 0.9% 1000 mL para 24 h (aporte basal)"
+     3) "Solución Mixta 1000 mL para 24 h (aporte calórico basal en ayuno prolongado)"
+     4) "Solución Hartmann 1000 mL para 8 h (restitución de pérdidas leves/moderadas)"
 3. familiasMedicamentos: Array de 4 a 6 fármacos de 1ª y 2ª línea según las Guías de Práctica Clínica (GPC) mexicanas y protocolos hospitalarios para esta patología. Cada uno debe incluir:
    - familia: Grupo farmacológico (ej: "Cefalosporina 3ª Gen", "Macrólido", "Antipirético IV", "Analgesia AINE", "Inhibidor de Bomba de Protones", "Broncodilatador", etc.)
    - farmaco: Nombre genérico oficial (ej: "Ceftriaxona", "Claritromicina", "Paracetamol", "Omeprazol", "Salbutamol")
@@ -770,46 +788,110 @@ Devuelve un JSON estrictamente estructurado.`;
         // Robust Fallback generator based on vitals and keywords
         const frNum = parseInt(caseData.vitalSigns.frecuenciaRespiratoria) || 20;
         const spo2Num = parseInt(caseData.vitalSigns.saturacionOxigeno) || 95;
+        const paStr = caseData.vitalSigns.presionArterial || '';
+        const systolic = parseInt(paStr.split('/')[0]) || 120;
+        const caseText = (caseData.caseTitle + ' ' + caseData.patientProfile + ' ' + caseData.historyOfPresentIllness + ' ' + caseData.physicalExam).toLowerCase();
+        
         const isTaquipneico = frNum >= 26;
         const isDesaturando = spo2Num < 92;
-        const isDiabetico = (caseData.patientProfile + caseData.historyOfPresentIllness).toLowerCase().includes('diab');
+        const isDiabetico = caseText.includes('diab');
+        const isShockOrHypo = systolic < 90 || /choque|shock|neumot[oó]rax|tensi[oó]n|hipoten|sepsis|trauma|hemorr/i.test(caseText);
+        const isHeartFail = /insuficiencia card[ií]aca|falla card|edema pulmonar|edema agudo|estertores/i.test(caseText);
 
         const fallbackDietas: string[] = [];
-        if (isTaquipneico) fallbackDietas.push("Ayuno por taquipnea y riesgo de broncoaspiración");
+        if (isTaquipneico || isShockOrHypo) fallbackDietas.push("Ayuno por taquipnea y riesgo de broncoaspiración");
         if (isDiabetico) fallbackDietas.push("Dieta fraccionada para diabético (1500-1800 kcal)");
         fallbackDietas.push("Dieta blanda con líquidos a tolerancia");
         fallbackDietas.push("Dieta normocalórica hiposódica");
 
-        const fallbackSoluciones: SuggestedSolutionOption[] = [
-            {
-                label: "Sol. Hartmann 1000 mL para 12 h (mantenimiento GPC)",
-                tipo: "Solución Hartmann",
-                volumen: 1000,
-                tiempo: "Para 12 horas",
-                via: "IV periférica"
-            },
-            {
-                label: "Sol. Fisiológica 0.9% 1000 mL para 24 h (aporte basal)",
-                tipo: "Solución Fisiológica 0.9%",
-                volumen: 1000,
-                tiempo: "Para 24 horas",
-                via: "IV periférica"
-            },
-            {
-                label: "Sol. Mixta 1000 mL para 24 h (aporte basal y calórico)",
-                tipo: "Solución Mixta",
-                volumen: 1000,
-                tiempo: "Para 24 horas",
-                via: "IV periférica"
-            },
-            {
-                label: "Carga rápida Sol. Hartmann 500 mL en 1 h (reanimación)",
-                tipo: "Solución Hartmann",
-                volumen: 500,
-                tiempo: "Carga en 1 hora",
-                via: "IV periférica"
-            }
-        ];
+        let fallbackSoluciones: SuggestedSolutionOption[];
+        if (isShockOrHypo) {
+            fallbackSoluciones = [
+                {
+                    label: "Carga rápida Sol. Hartmann 1000 mL en 30-60 min (reanimación)",
+                    tipo: "Solución Hartmann",
+                    volumen: 1000,
+                    tiempo: "Carga en 1 hora",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Carga rápida Sol. Hartmann 500 mL en 30 min (reanimación inicial)",
+                    tipo: "Solución Hartmann",
+                    volumen: 500,
+                    tiempo: "Carga en 30 minutos",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Carga rápida Sol. Fisiológica 0.9% 1000 mL en 1 h (expansor)",
+                    tipo: "Solución Fisiológica 0.9%",
+                    volumen: 1000,
+                    tiempo: "Carga en 1 hora",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Sol. Hartmann 1000 mL para 12 h (mantenimiento post-carga)",
+                    tipo: "Solución Hartmann",
+                    volumen: 1000,
+                    tiempo: "Para 12 horas",
+                    via: "IV periférica"
+                }
+            ];
+        } else if (isHeartFail) {
+            fallbackSoluciones = [
+                {
+                    label: "Sol. Fisiológica 0.9% 250 mL para 24 h (vía permeable / KVO)",
+                    tipo: "Solución Fisiológica 0.9%",
+                    volumen: 250,
+                    tiempo: "Para 24 horas",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Sol. Glucosada 5% 250 mL para 24 h (vía permeable / KVO)",
+                    tipo: "Solución Glucosada 5%",
+                    volumen: 250,
+                    tiempo: "Para 24 horas",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Sol. Fisiológica 0.9% 500 mL para 24 h (restricción hídrica)",
+                    tipo: "Solución Fisiológica 0.9%",
+                    volumen: 500,
+                    tiempo: "Para 24 horas",
+                    via: "IV periférica"
+                }
+            ];
+        } else {
+            fallbackSoluciones = [
+                {
+                    label: "Sol. Hartmann 1000 mL para 12 h (mantenimiento GPC)",
+                    tipo: "Solución Hartmann",
+                    volumen: 1000,
+                    tiempo: "Para 12 horas",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Sol. Fisiológica 0.9% 1000 mL para 24 h (aporte basal)",
+                    tipo: "Solución Fisiológica 0.9%",
+                    volumen: 1000,
+                    tiempo: "Para 24 horas",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Sol. Mixta 1000 mL para 24 h (aporte basal y calórico)",
+                    tipo: "Solución Mixta",
+                    volumen: 1000,
+                    tiempo: "Para 24 horas",
+                    via: "IV periférica"
+                },
+                {
+                    label: "Carga rápida Sol. Hartmann 500 mL en 1 h (reanimación)",
+                    tipo: "Solución Hartmann",
+                    volumen: 500,
+                    tiempo: "Carga en 1 hora",
+                    via: "IV periférica"
+                }
+            ];
+        }
 
         const fallbackFamilias: SuggestedDrugOption[] = [
             {
@@ -870,6 +952,121 @@ Devuelve un JSON estrictamente estructurado.`;
     }
 }
 
+export function getSolucionesFallback(caseContext: string, plan: PrescribedTherapeuticPlan): string {
+    if (plan.soluciones.length === 0) {
+        return `✅ **¿Por qué SÍ? (Argumento):**
+Las soluciones parenterales aseguran la reposición hídrica basal o la reanimación hemodinámica inmediata según la gravedad del paciente.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Omitir soluciones parenterales en ayuno o ante pérdidas patológicas agudas precipita deshidratación, hipoperfusión renal y progresión a falla orgánica.
+
+💡 **Perla del Pase de Visita:**
+❌ **Elige otra opción:** No has prescrito soluciones parenterales en el plan. Selecciona el esquema de fluidoterapia adaptado al estado hemodinámico del paciente.`;
+    }
+
+    const ctx = caseContext.toLowerCase();
+    // Check hemodynamics
+    const isShockOrHypotension = /choque|shock|neumot[oó]rax|tensi[oó]n|hipoten|sepsis|politrauma|hemorr|taquicardia severa|inestabilidad hemodin[aá]mica/i.test(ctx) ||
+        /pa (6\d|7\d|8\d)\//i.test(ctx) ||
+        /tas\s*[:<]?\s*(6\d|7\d|8\d)/i.test(ctx);
+    const isHeartFailureOrEdema = /insuficiencia card[ií]aca|falla card|edema pulmonar|edema agudo|estertores crepitantes/i.test(ctx);
+    const isTBI = /traumatismo craneo|tce|edema cerebral|hipertensi[oó]n intracraneal/i.test(ctx);
+
+    const hasDextrose = plan.soluciones.some(s => /mixta|glucosad|dextros/i.test(s.tipo));
+    const hasRapidBolus = plan.soluciones.some(s => /carga|30 min|1 h|1 hora/i.test(s.tiempo) || /carga/i.test(s.tipo));
+    const isSlowMaintenance = plan.soluciones.every(s => /24 h|24 horas|12 h|12 horas/i.test(s.tiempo)) && !hasRapidBolus;
+    const hasIsotonicCrystalloid = plan.soluciones.some(s => /hartmann|fisiol[oó]gica|ringer/i.test(s.tipo));
+
+    if (isShockOrHypotension) {
+        if (hasDextrose) {
+            return `✅ **¿Por qué SÍ? (Argumento):**
+En inestabilidad hemodinámica y choque, la reanimación prioritaria exige cristaloides isotónicos balanceados (Solución Hartmann o Fisiológica 0.9%) para restaurar inmediatamente la precarga y perfusión tisular.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Las soluciones mixtas o glucosadas están formalmente contraindicadas en choque: la glucosa se metaboliza velozmente a agua libre que difunde al espacio extravascular (~90% fuga al intersticio), no restituye la volemia efectiva, agrava el edema y desencadena hiperglucemia de estrés con diuresis osmótica contraproducente.
+
+💡 **Perla del Pase de Visita:**
+❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. En choque o hipotensión severa, la Solución Mixta o Glucosada está contraindicada porque no expande el volumen intravascular efectivo y una velocidad para 24 horas (41 mL/h) es letalmente insuficiente para reanimar. Cambia a la opción recomendada: Carga rápida de Solución Hartmann 500 a 1000 mL para 30 minutos a 1 hora (o Solución Fisiológica 0.9%) para restaurar de inmediato la presión de perfusión tisular.`;
+        }
+
+        if (isSlowMaintenance) {
+            return `✅ **¿Por qué SÍ? (Argumento):**
+Los cristaloides isotónicos balanceados restauran la volemia; sin embargo, en inestabilidad hemodinámica el volumen debe infundirse en bolo rápido para impactar el retorno venoso y el gasto cardiaco.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Prescribir una velocidad lenta de mantenimiento ("para 24 horas" = ~41 mL/h) en choque o hipotensión es letalmente insuficiente: el paciente continuará en isquemia tisular y choque irreversible antes de recibir el volumen necesario.
+
+💡 **Perla del Pase de Visita:**
+❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. La infusión para 24 horas es insuficiente para revertir el choque o hipotensión en urgencias. Cambia a la opción recomendada: Carga rápida de Solución Hartmann 500 a 1000 mL para 30 minutos a 1 hora para lograr una reanimación hemodinámica agresiva y guiada por metas.`;
+        }
+
+        if (hasIsotonicCrystalloid && hasRapidBolus) {
+            return `✅ **¿Por qué SÍ? (Argumento):**
+La carga rápida con cristaloide isotónico balanceado (Hartmann o Fisiológica 0.9%) expande de inmediato el volumen circulante efectivo, optimiza el volumen sistólico por mecanismo de Frank-Starling y rescata la perfusión tisular.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+La fluidoterapia en choque debe titularse de forma dinámica: vigilar uresis horaria (> 0.5-1 mL/kg/h), descenso del lactato y ausencia de estertores crepitantes pulmonares para evitar la sobrecarga iatrogénica posterior.
+
+💡 **Perla del Pase de Visita:**
+✅ **¡Tu respuesta es correcta!** Excelente indicación de carga rápida con cristaloide isotónico para reanimación en fase aguda. Todo bolo se reevalúa inmediatamente al término de la infusión auscultando campos pulmonares y verificando tensión arterial y uresis.`;
+        }
+    }
+
+    if (isHeartFailureOrEdema) {
+        if (hasRapidBolus || plan.soluciones.some(s => s.volumen >= 1000 && !/24/.test(s.tiempo))) {
+            return `✅ **¿Por qué SÍ? (Argumento):**
+En falla cardiaca descompensada o congestión pulmonar, la prioridad es la restricción estricta de sodio y agua para disminuir la presión en cuña capilar pulmonar y la postcarga.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Administrar bolos rápidos o volúmenes altos (> 500 mL) precipita edema agudo de pulmón fulminante y claudicación ventricular por sobrecarga hidrostática retrógrada.
+
+💡 **Perla del Pase de Visita:**
+❌ **Elige otra opción:** Esta indicación es riesgosa para este paciente con sobrecarga hídrica o falla cardiaca. Cambia a la opción recomendada: Vía permeable (KVO) con Solución Fisiológica 0.9% 250 mL para 24 horas o restricción hídrica estricta.`;
+        }
+
+        return `✅ **¿Por qué SÍ? (Argumento):**
+La restricción estricta de volumen y el mantenimiento de vía permeable (KVO) evitan elevar la presión telediastólica del ventrículo izquierdo y previenen el edema alveolar.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+La administración descuidada de soluciones parenterales en pacientes con falla cardiaca o sobrecarga precipita rápidamente descompensación respiratoria e insuficiencia ventricular.
+
+💡 **Perla del Pase de Visita:**
+✅ **¡Tu respuesta es correcta!** Excelente juicio clínico: restricción hídrica estricta y vía permeable (KVO). En falla cardiaca o edema agudo pulmonar, la fluidoterapia de mantenimiento debe limitarse al mínimo necesario para administración de medicamentos y balance hídrico neutro o negativo.`;
+    }
+
+    if (isTBI && hasDextrose) {
+        return `✅ **¿Por qué SÍ? (Argumento):**
+En traumatismo craneoencefálico, la fluidoterapia debe mantener la osmolaridad sérica normal-alta para evitar gradientes que favorezcan el edema cerebral.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Las soluciones glucosadas o hipotónicas generan agua libre que cruza la barrera hematoencefálica dañada, aumentando la presión intracraneal y el riesgo de herniación cerebral.
+
+💡 **Perla del Pase de Visita:**
+❌ **Elige otra opción:** Las soluciones con dextrosa/mixtas están contraindicadas en TCE. Cambia a la opción recomendada: Solución Fisiológica 0.9% 1000 mL para 12 a 24 horas para mantener estabilidad osmolar y hemodinámica.`;
+    }
+
+    // Stable case
+    if (hasRapidBolus) {
+        return `✅ **¿Por qué SÍ? (Argumento):**
+Las soluciones de mantenimiento cubren los requerimientos hídricos y electrolíticos fisiológicos diarios (25-30 mL/kg/día).
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+Infundir cargas rápidas de volumen en pacientes normovolémicos sin choque genera sobrecarga de volumen innecesaria y hemodilución.
+
+💡 **Perla del Pase de Visita:**
+⚠️ **Ajusta tu prescripción:** El paciente se encuentra hemodinámicamente estable sin signos de choque ni hipovolemia severa. Las cargas rápidas no están indicadas; ajusta a un esquema de mantenimiento (ej. Solución Hartmann 1000 mL para 12 a 24 horas).`;
+    }
+
+    return `✅ **¿Por qué SÍ? (Argumento):**
+Las soluciones cristaloides isotónicas de mantenimiento a 25-30 mL/kg/día restauran el volumen intravascular efectivo y garantizan adecuada perfusión tisular y renal.
+
+⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
+La prescripción por inercia sin balance hídrico acumulado puede pasar por alto balances positivos excesivos; todo esquema de mantenimiento debe recalcularse cada 24 horas según uresis y electrolitos séricos.
+
+💡 **Perla del Pase de Visita:**
+✅ **¡Tu respuesta es correcta!** Esquema de fluidoterapia de mantenimiento adecuado para las metas basales del paciente. Las soluciones se titulan por uresis horaria (> 0.5-1 mL/kg/h) y campos pulmonares limpios, no por inercia de turno a turno.`;
+}
+
 export async function validateTherapeuticPlanWithTutor(
     caseContext: string,
     plan: PrescribedTherapeuticPlan,
@@ -910,17 +1107,48 @@ Tu misión formativa en el pase de visita es dar retroalimentación ULTRA CONCIS
 ENFOQUE OBLIGATORIO: Esta evaluación es EXCLUSIVA para el sub-apartado: "${targetBlock}".
 No menciones otros apartados. Prohibido dar discursos largos, saludos formales de relleno o despedidas.
 
-${focusBlock === 'soluciones' ? `REGLAS DE CONGRUENCIA TOTAL PARA SOLUCIONES Y FLUIDOTERAPIA:
-1. SI EL INTERNO PRESCRIBE una solución cristaloide isotónica estándar adecuada (como Solución Hartmann 1000 mL para 12 h o 24 h, Solución Fisiológica 0.9% 1000 mL para 12 h o 24 h, Solución Mixta para 24 h, o carga rápida de 500-1000 mL en 1 h ante hipotensión o choque), o cualquiera de las opciones sugeridas por el tutor en la interfaz:
-   - DICTAMEN OBLIGATORIO: ¡ES CORRECTA!
-   - En la "💡 Perla del Pase de Visita", DEBES INICIAR OBLIGATORIAMENTE CON:
-     "✅ **¡Tu respuesta es correcta!** [Reafirma que la indicación (Hartmann, Fisiológica 0.9% o Mixta) mantiene la perfusión tisular y gasto urinario fisiológico sin riesgo de sobrecarga]".
-   - PROHIBIDO calificarla como incorrecta si el interno eligió o redactó una de estas soluciones estándar o una opción sugerida por el tutor. Nunca contradigas la indicación sugerida.
-2. ÚNICAMENTE DICTAMINA "❌ **Elige otra opción:**" si:
-   - No hay ninguna solución prescrita en el plan.
-   - Hay sobrecarga manifiesta con múltiples infusiones simultáneas (> 3500 mL/día sin choque).
-   - Se indicó una infusión contraindicada (ej. agua destilada pura IV o exceso de volumen en edema agudo de pulmón cardiogénico).
-   Al indicar "❌ **Elige otra opción:**", recomienda con total claridad cuál de las soluciones sugeridas elegir (ej. "Cambia a la opción recomendada: Solución Hartmann 1000 mL para 12 horas").
+${focusBlock === 'soluciones' ? `REGLAS DE EVALUACIÓN CLÍNICA Y HEMODINÁMICA PARA SOLUCIONES Y FLUIDOTERAPIA:
+Como Médico Especialista y Tutor Docente, debes evaluar con RIGOR CLÍNICO Y FARMACOLÓGICO la prescripción del interno contrastando los 3 parámetros:
+1) TIPO DE SOLUCIÓN (Hartmann, Fisiológica 0.9%, Mixta, Glucosada al 5%/10%, Salina 0.45%, etc.)
+2) VOLUMEN TOTAL (mL)
+3) TIEMPO Y VELOCIDAD DE INFUSIÓN (Carga rápida en 30-60 min vs. infusión para 8, 12 o 24 h vs. KVO / restricción)
+frente al estado hemodinámico, comorbilidades y patología específica del caso clínico.
+
+CATEGORÍAS DE PACIENTE Y CRITERIOS DE EVALUACIÓN:
+
+1. PACIENTE EN CHOQUE, HIPOTENSIÓN SEVERA (TAS < 90 mmHg o TAM < 65 mmHg), NEUMOTÓRAX A TENSIÓN, SEPSIS GRAVE, TRAUMA / HEMORRAGIA O DESHIDRATACIÓN GRAVE:
+   - OBJETIVO TERAPÉUTICO: Reanimación hídrica agresiva con cristaloide isotónico balanceado para restaurar el gasto cardiaco y la presión de perfusión tisular.
+   - SOLUCIÓN Y VELOCIDAD CORRECTAS: Carga rápida de Solución Hartmann (o Ringer Lactato / Fisiológica 0.9%) de 500 a 1000 mL a pasar en 30 a 60 minutos (20-30 mL/kg).
+   - CONDUCTAS QUE MERECEN OBLIGATORIAMENTE "❌ **Elige otra opción:**":
+     * PRESCRIBIR SOLUCIONES CON GLUCOSA (Solución Mixta, Solución Glucosada 5% o 10%): ¡TOTALMENTE INADECUADO Y CONTRAINDICADO! En choque o reanimación aguda, la glucosa se metaboliza de inmediato generando agua libre hipotónica que difunde al espacio extravascular/intersticial (sólo ~8-10% permanece intravascular), NO expande el volumen circulante efectivo, agrava el edema tisular/pulmonar y desencadena hiperglucemia por estrés y glucosuria osmótica.
+     * PRESCRIBIR VELOCIDAD LENTA DE MANTENIMIENTO (ej. "para 24 horas" = ~41 mL/h o "para 12 horas" sin carga previa): Iniciar 1000 mL para 24 h en un paciente chocado o hipotenso es letalmente insuficiente; el paciente entrará en fallo multiorgánico o paro por hipoperfusión sostenida antes de recibir volumen suficiente.
+     -> DICTAMEN OBLIGATORIO:
+     💡 **Perla del Pase de Visita:**
+     ❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. En pacientes en choque o con inestabilidad hemodinámica severa, las soluciones glucosadas/mixtas están contraindicadas porque no expanden el volumen intravascular y elevan la glucemia por estrés, además de que una infusión para 24 horas (41 mL/h) es letalmente insuficiente para reanimar. Cambia a la opción recomendada: Carga rápida de Solución Hartmann (o Solución Fisiológica 0.9%) de 500 a 1000 mL para 30 minutos a 1 hora para restituir de inmediato el volumen circulante efectivo y la perfusión orgánica.
+   - SI EL INTERNO PRESCRIBIÓ Solución Hartmann o Fisiológica 0.9% en carga rápida (500 a 1000 mL en 30-60 min):
+     -> DICTAMEN:
+     💡 **Perla del Pase de Visita:**
+     ✅ **¡Tu respuesta es correcta!** Excelente elección de fluidoterapia de reanimación: el bolo rápido de cristaloide isotónico balanceado expande el volumen circulante efectivo de forma inmediata para restaurar la precarga y perfusión tisular sin provocar edema osmótico.
+
+2. PACIENTE CON INSUFICIENCIA CARDIACA DESCOMPENSADA, EDEMA AGUDO DE PULMÓN O FALLA RENAL OLIGÚRICA/ANÚRICA:
+   - OBJETIVO TERAPÉUTICO: Restricción hídrica estricta (KVO / mantener vía permeable a 250 mL en 24 h o < 500 mL/día).
+   - CONDUCTAS QUE MERECEN OBLIGATORIAMENTE "❌ **Elige otra opción:**": Cargas rápidas de líquidos o esquemas de 1000-2000 mL para 8-12 h. Esto precipita asfixia por inundación alveolar y claudicación del ventrículo izquierdo.
+   - DICTAMEN: "❌ **Elige otra opción:** Cambia a la opción recomendada: Vía permeable (KVO) con Solución Fisiológica 0.9% 250 mL para 24 horas para evitar sobrecarga hidrostática pulmonar."
+
+3. PACIENTE CON TRAUMATISMO CRANEOENCEFÁLICO (TCE) O HIPERTENSIÓN INTRACRANEAL:
+   - OBJETIVO TERAPÉUTICO: Mantener osmolaridad plasmática normal-alta. Cristaloide de elección: Solución Fisiológica 0.9% (308 mOsm/L).
+   - SOLUCIONES CONTRAINDICADAS: Solución Glucosada 5%, Mixta, o hipotónicas (Salina 0.45%), y evitar excesos de Hartmann (~273 mOsm/L, ligeramente hipotónico respecto al cerebro). Generan edema cerebral citotóxico y vasogénico con riesgo de herniación transtentorial.
+   - DICTAMEN: Si indicó glucosada o hipotónica -> "❌ **Elige otra opción:** Cambia a Solución Fisiológica 0.9% 1000 mL para 12-24 h para prevenir edema cerebral".
+
+4. PACIENTE HOSPITALIZADO ESTABLE, NORMOTENSO EN AYUNO BASAL (CIRUGÍA, PATOLOGÍA CLÍNICA SIN CHOQUE):
+   - OBJETIVO TERAPÉUTICO: Mantenimiento hidroelectrolítico y calórico basal (Holiday-Segar 25-35 mL/kg/día).
+   - SOLUCIONES ADECUADAS: Solución Hartmann 1000 mL para 12 h o 24 h, Solución Fisiológica 0.9% 1000 mL para 12-24 h, o Solución Mixta 1000 mL para 12-24 h (para evitar cetosis de ayuno en normoglucémicos).
+   - DICTAMEN: "✅ **¡Tu respuesta es correcta!** [Reafirma que la infusión cubre el gasto fisiológico y pérdidas insensibles]".
+   - Si indica una carga rápida en un paciente estable sin deshidratación ni choque:
+     -> "⚠️ **Ajusta tu prescripción:** En paciente hemodinámicamente estable sin hipovolemia no se justifican cargas rápidas de volumen; ajusta a infusión de mantenimiento para 12 a 24 horas".
+
+5. SI EL INTERNO NO HA PRESCRITO NINGUNA SOLUCIÓN:
+   - Dictamina: "❌ **Elige otra opción:** No has prescrito ninguna solución parenteral..."
 ` : ''}
 ${focusBlock === 'medidas' ? `REGLAS DE EVALUACIÓN MULTI-OPCIÓN PARA MEDIDAS GENERALES Y MONITORIZACIÓN:
 1. NATURALEZA MULTI-OPCIÓN / MULTI-RESPUESTA (OBLIGATORIO): En el pase de visita y órdenes médicas de hospitalización, este apartado es SIEMPRE MULTI-OPCIÓN. Prácticamente siempre se requieren 2, 3 o más medidas indicadas de manera simultánea para el paciente (ej. posición Semifowler 30-45°, monitorización continua de signos vitales por turno, control de líquidos y balance hídrico, cuantificación de uresis horaria, oxigenoterapia con metas específicas de SpO2, glucometrías capilares).
@@ -948,8 +1176,10 @@ ESTRUCTURA EXACTA REQUERIDA (3 viñetas directas):
 Dictamina de forma EXPLÍCITA y VISIBLE si la elección prescrita por el interno es ACERTADA o NO para este caso:
 - Si la elección del interno es ACERTADA / CORRECTA:
   Inicia EXACTAMENTE con: "✅ **¡Tu respuesta es correcta!** [Reafirma brevemente el acierto clínico y añade la regla de oro o máxima hospitalaria memorable]".
-- Si la elección del interno es INCORRECTA / INADECUADA / RIESGOSA o falta ajustar:
-  Inicia EXACTAMENTE con: "❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. Cambia a la opción recomendada ([menciona explícitamente la indicación correcta recomendada]) para evitar [complicación]. [Añade la regla de oro que fundamenta la corrección]".`;
+- Si la elección del interno es INCORRECTA / INADECUADA / RIESGOSA:
+  Inicia EXACTAMENTE con: "❌ **Elige otra opción:** Esta indicación no es la adecuada para este cuadro clínico. Cambia a la opción recomendada ([menciona explícitamente la indicación correcta recomendada]) para evitar [complicación]. [Añade la regla de oro que fundamenta la corrección]".
+- Si la elección del interno es en general aceptable pero requiere calibrar velocidad o volumen:
+  Inicia EXACTAMENTE con: "⚠️ **Ajusta tu prescripción:** [Explica el ajuste necesario de velocidad o volumen y la meta hemodinámica o renal a vigilar]".`;
 
     const fallbackResponses: Record<string, string> = {
         dieta: !plan.tipoDieta
@@ -970,23 +1200,7 @@ Indicar vía oral con polipnea severa puede desencadenar neumonitis química por
 💡 **Perla del Pase de Visita:**
 ✅ **¡Tu respuesta es correcta!** Paciente con FR ≥ 24 rpm o disnea = boca cerrada (ayuno estricto). Se reinicia tolerancia oral en cuanto la FR sea < 20 rpm y el patrón respiratorio esté estable.`,
 
-        soluciones: plan.soluciones.length === 0
-            ? `✅ **¿Por qué SÍ? (Argumento):**
-Las soluciones cristaloides isotónicas (Hartmann o Fisiológica 0.9%) a 25-30 mL/kg/día restauran el volumen intravascular efectivo y garantizan adecuada perfusión tisular y renal.
-
-⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
-Omitir soluciones parenterales en ayuno o ante pérdidas patológicas precipita deshidratación y fracaso renal agudo prerrenal.
-
-💡 **Perla del Pase de Visita:**
-❌ **Elige otra opción:** No has prescrito soluciones parenterales. Selecciona la opción recomendada (Solución Hartmann 1000 mL para 12 horas o Solución Fisiológica 0.9% 1000 mL para 24 horas) para asegurar hidratación basal y vía venosa permeable.`
-            : `✅ **¿Por qué SÍ? (Argumento):**
-Las soluciones cristaloides isotónicas (Hartmann o Fisiológica 0.9%) a 25-30 mL/kg/día restauran el volumen intravascular efectivo y garantizan adecuada perfusión tisular y renal.
-
-⚠️ **¿Por qué NO? / Riesgo a vigilar (Contra-argumento):**
-Infundir bolos rápidos o volúmenes excesivos (> 35 mL/kg) sin correlacionar con gasto cardiaco puede precipitar edema agudo de pulmón; infundir solución salina masiva genera acidosis hiperclorémica.
-
-💡 **Perla del Pase de Visita:**
-✅ **¡Tu respuesta es correcta!** Esquema de fluidoterapia adecuado para las metas basales del paciente. Las soluciones se titulan por uresis horaria (> 0.5-1 mL/kg/h) y campos pulmonares limpios, no por inercia de turno a turno.`,
+        soluciones: getSolucionesFallback(caseContext, plan),
 
         medicamentos: plan.medicamentos.length === 0
             ? `✅ **¿Por qué SÍ? (Argumento):**
