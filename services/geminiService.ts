@@ -4,42 +4,31 @@ import {
     TherapeuticPlanOptionsCache, PrescribedTherapeuticPlan, SuggestedDrugOption, SuggestedSolutionOption
 } from '../types';
 import { generateRealisticMedicalImageUrl, getInternetMedicalImageUrl } from './medicalImageRenderer';
+import { 
+    llamarGeminiConFailover, 
+    obtenerAiClientePorModulo, 
+    crearChatConFailover, 
+    obtenerPoolLlaves, 
+    cargarLlavesConfiguradas, 
+    ModuloClinico, 
+    InfoLlave 
+} from './apiRouter';
 
+// Reexportamos utilidades del enrutador para consumo transparente en la capa de servicios
+export { 
+    llamarGeminiConFailover, 
+    obtenerPoolLlaves, 
+    cargarLlavesConfiguradas, 
+    crearChatConFailover 
+};
+export type { ModuloClinico, InfoLlave };
 
-function getAi(): GoogleGenAI {
-    let apiKey = '';
-
-    // 1. Prioridad 1: Clave ingresada por el usuario en localStorage
-    if (typeof localStorage !== 'undefined') {
-        const storedKey = localStorage.getItem('GEMINI_API_KEY') || localStorage.getItem('API_KEY');
-        if (storedKey && storedKey.trim() !== '') {
-            apiKey = storedKey.trim();
-        }
-    }
-
-    // 2. Prioridad 2: Variable inyectada en window
-    if (!apiKey && typeof window !== 'undefined' && (window as any).GEMINI_API_KEY) {
-        apiKey = (window as any).GEMINI_API_KEY;
-    }
-
-    // 3. Prioridad 3: Variable de entorno de Vite (.env.local)
-    if (!apiKey && typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) {
-        apiKey = (import.meta as any).env.VITE_GEMINI_API_KEY;
-    }
-
-    // 4. Prioridad 4: process.env (Node / Vercel)
-    if (!apiKey && typeof process !== 'undefined' && process.env) {
-        const pKey = process.env.API_KEY || process.env.GEMINI_API_KEY;
-        if (pKey && pKey !== 'undefined' && pKey !== 'null') {
-            apiKey = pKey;
-        }
-    }
-
-    if (apiKey === 'undefined' || apiKey === 'null' || !apiKey) {
-        apiKey = '';
-    }
-
-    return new GoogleGenAI({ apiKey });
+/**
+ * Obtiene el cliente de IA activo para el módulo solicitado según el pool de llaves configurado.
+ * Mantiene compatibilidad total con cualquier llamada existente.
+ */
+export function getAi(modulo?: ModuloClinico | string): GoogleGenAI {
+    return obtenerAiClientePorModulo(modulo);
 }
 
 // Helper function for robust JSON parsing
@@ -69,49 +58,67 @@ const TEXT_MODELS = [
     'gemini-3.5-flash-lite'
 ];
 
+/**
+ * Genera contenido con reintento y alternancia automática entre modelos y llaves.
+ * Integra el router con prioridades por módulo (Caso A: Simulador vs Caso B: Demás módulos).
+ */
 export async function generateContentWithFallback(params: {
     contents: any;
     config?: any;
     preferredModel?: string;
+    modulo?: ModuloClinico | string;
 }): Promise<any> {
-    const ai = getAi();
-    const modelsToTry = params.preferredModel 
-        ? [params.preferredModel, ...TEXT_MODELS.filter(m => m !== params.preferredModel)]
-        : TEXT_MODELS;
+    return llamarGeminiConFailover(async (ai, infoLlave) => {
+        const modelsToTry = params.preferredModel 
+            ? [params.preferredModel, ...TEXT_MODELS.filter(m => m !== params.preferredModel)]
+            : TEXT_MODELS;
 
-    let lastError: any = null;
-    for (const model of modelsToTry) {
-        try {
-            const response = await ai.models.generateContent({
-                model: model,
-                contents: params.contents,
-                config: params.config
-            });
-            return response;
-        } catch (err: any) {
-            console.warn(`Intento con modelo ${model} no completado:`, err?.message || err);
-            lastError = err;
+        let lastError: any = null;
+        for (const model of modelsToTry) {
+            try {
+                const response = await ai.models.generateContent({
+                    model: model,
+                    contents: params.contents,
+                    config: params.config
+                });
+                return response;
+            } catch (err: any) {
+                const errMsg = err?.message || String(err);
+                lastError = err;
 
-            // Si falló por restricciones de herramientas/grounding (ej. error 429 en grounding_requests), reintentar sin tools
-            const errMsg = err?.message || '';
-            if (params.config?.tools && (errMsg.includes('grounding') || errMsg.includes('tools') || errMsg.includes('429'))) {
-                try {
-                    const fallbackConfig = { ...params.config };
-                    delete fallbackConfig.tools;
-                    const responseWithoutTools = await ai.models.generateContent({
-                        model: model,
-                        contents: params.contents,
-                        config: fallbackConfig
-                    });
-                    return responseWithoutTools;
-                } catch (toolErr) {
-                    console.warn(`Reintento sin herramientas en ${model} falló:`, toolErr);
+                // Si el error es límite de uso o cuota agotada (429 / RESOURCE_EXHAUSTED),
+                // interrumpimos de volada la prueba de modelos con esta misma llave para que
+                // llamarGeminiConFailover salte de inmediato a la siguiente llave del pool.
+                if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+                    console.warn(
+                        `[AICLINIC Router] Cuota agotada (429) en "${infoLlave.nombre}" con modelo "${model}". ` +
+                        `Lanzando evento para failover inmediato de llave...`
+                    );
+                    throw err;
                 }
+
+                console.warn(`[AICLINIC] Intento con modelo ${model} no completado (${infoLlave.nombre}):`, errMsg);
+
+                // Si falló por restricciones de herramientas/grounding, reintentar sin tools en el mismo modelo
+                if (params.config?.tools && (errMsg.includes('grounding') || errMsg.includes('tools'))) {
+                    try {
+                        const fallbackConfig = { ...params.config };
+                        delete fallbackConfig.tools;
+                        const responseWithoutTools = await ai.models.generateContent({
+                            model: model,
+                            contents: params.contents,
+                            config: fallbackConfig
+                        });
+                        return responseWithoutTools;
+                    } catch (toolErr) {
+                        console.warn(`[AICLINIC] Reintento sin herramientas en ${model} falló:`, toolErr);
+                    }
+                }
+                continue;
             }
-            continue;
         }
-    }
-    throw lastError || new Error("Error al comunicarse con el servicio de IA.");
+        throw lastError || new Error(`No fue posible completar la generación con la llave ${infoLlave.nombre}.`);
+    }, params.modulo || 'general');
 }
 
 
@@ -126,6 +133,7 @@ export async function generateQuiz(topic: string, difficulty: string, numQuestio
 
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'quizzes',
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -157,6 +165,7 @@ export async function generateClinicalCase(topic: string, difficulty: string): P
 
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'simulador',
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -225,6 +234,7 @@ Responde únicamente con un objeto JSON estructurado con 'patientResponse' y 'tu
 
   const response = await generateContentWithFallback({
     contents: prompt,
+    modulo: 'simulador',
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -245,6 +255,7 @@ export async function getSuggestedStudies(clinicalCase: ClinicalCase): Promise<{
     const prompt = `Basado en el siguiente caso clínico: ${JSON.stringify(clinicalCase)}, sugiere una lista de los estudios de laboratorio e imagen más pertinentes para llegar al diagnóstico. Responde con un objeto JSON que contenga dos arreglos: "suggestedLabs" y "suggestedImaging". IMPORTANTE: Todos los nombres de estudios DEBEN estar escritos en español (ej. "Biometría hemática completa", "Radiografía de tórax PA", "Química sanguínea", "Examen general de orina"). Sé conciso y clínicamente relevante.`;
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'simulador',
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -275,6 +286,7 @@ export async function generateStudyResults(fullCaseContext: string, requestedStu
 
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'simulador',
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -338,23 +350,25 @@ export async function generateImage(basePrompt: string, findings?: string): Prom
         ? `Genera una imagen médica diagnóstica correspondiente estrictamente a ${modalityDesc} de: ${basePrompt}. La imagen DEBE mostrar de forma congruente los siguientes hallazgos patológicos: ${findings}. Estilo fotorrealista auténtico, escala de grises adecuada a la modalidad médica, anatomía humana correcta, sin texto ni etiquetas. Ideal para educación médica.`
         : `Genera una imagen médica diagnóstica fidedigna correspondiente estrictamente a ${modalityDesc} de: "${basePrompt}". Sin texto, etiquetas ni artefactos.`;
 
-    // 1. Intentar primero con gemini-2.5-flash-image
+    // 1. Intentar primero con gemini-2.5-flash-image con failover en el pool del simulador
     try {
         const isChest = /t[oó]rax|chest|pulmon/i.test(normPrompt) && 
                         !/\b(tac|tc|tomograf\w*|ultra\w*|ecograf\w*|ecocardio\w*|usg|doppler|resonanc\w*|rmn?)\b/i.test(normPrompt) &&
                         !normPrompt.startsWith("eco");
-        const ai = getAi();
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [{ text: fullPrompt }]
-            },
-            config: {
-                imageConfig: {
-                    aspectRatio: isChest ? "3:4" : "1:1"
-                }
-            },
-        });
+
+        const response = await llamarGeminiConFailover(async (ai) => {
+            return await ai.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: {
+                    parts: [{ text: fullPrompt }]
+                },
+                config: {
+                    imageConfig: {
+                        aspectRatio: isChest ? "3:4" : "1:1"
+                    }
+                },
+            });
+        }, 'simulador');
 
         for (const part of response.candidates?.[0]?.content?.parts || []) {
             if (part.inlineData) {
@@ -362,7 +376,7 @@ export async function generateImage(basePrompt: string, findings?: string): Prom
             }
         }
     } catch (err: any) {
-        console.warn("gemini-2.5-flash-image no disponible por falta de cuota. Integrando imagen médica de internet correspondiente al informe radiológico:", err?.message || err);
+        console.warn("gemini-2.5-flash-image no disponible en el pool del simulador. Integrando imagen médica de internet correspondiente al informe radiológico:", err?.message || err);
     }
 
     // 2. Solo después de que no se pueda generar por gemini-2.5-flash-image por falta de cuota:
@@ -372,22 +386,24 @@ export async function generateImage(basePrompt: string, findings?: string): Prom
 
 
 export async function editImage(prompt: string, base64ImageData: string, mimeType: string): Promise<string> {
-    const response = await getAi().models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: {
-            parts: [
-                {
-                    inlineData: {
-                        data: base64ImageData,
-                        mimeType: mimeType,
+    const response = await llamarGeminiConFailover(async (ai) => {
+        return await ai.models.generateContent({
+            model: 'gemini-2.5-flash-image',
+            contents: {
+                parts: [
+                    {
+                        inlineData: {
+                            data: base64ImageData,
+                            mimeType: mimeType,
+                        },
                     },
-                },
-                {
-                    text: prompt,
-                },
-            ],
-        },
-    });
+                    {
+                        text: prompt,
+                    },
+                ],
+            },
+        });
+    }, 'simulador');
 
     for (const part of response.candidates?.[0]?.content?.parts || []) {
         if (part.inlineData) {
@@ -403,7 +419,7 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada y diversa (Guías de Práctica Clínica mexicanas CENETEC/SSA, guías internacionales AHA, ACC, ESC, ADA, KDIGO, IDSA, GOLD, revisiones en PubMed, NEJM, Lancet, JAMA y UpToDate).
 
     REGLAS DE FORMATO Y CITACIÓN:
-    - IMPORTANTE: Redacta estrictamente en texto plano y Markdown estándar. NUNCA utilices sintaxis LaTeX ni símbolos de dólar ($ o $$) ni comandos como \text{}, \alpha, \beta para fórmulas o nombres biológicos/médicos (ej. escribe simplemente "IL-1", "IL-6", "TNF-alfa", "IL-8", etc.).
+    - IMPORTANTE: Redacta estrictamente en texto plano y Markdown estándar. NUNCA utilices sintaxis LaTeX ni símbolos de dólar ($ o $$) ni comandos como \\text{}, \\alpha, \\beta para fórmulas o nombres biológicos/médicos (ej. escribe simplemente "IL-1", "IL-6", "TNF-alfa", "IL-8", etc.).
     - DIVERSIDAD Y AMPLITUD BIBLIOGRÁFICA: Consulta e incorpora activamente entre 4 y 6 fuentes médicas autorizadas y complementarias (nacionales e internacionales).
     - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3], [4], [5], [6] dentro del texto redactado en las secciones correspondientes para respaldar cada punto fisiopatológico, criterio diagnóstico, esquema farmacológico con dosis y evidencia clínica.
     - Cada número [n] debe coincidir rigurosamente con el orden de las fuentes consultadas.
@@ -433,6 +449,7 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
 
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'simulador',
         config: {
             tools: [{ googleSearch: {} }]
         }
@@ -474,6 +491,7 @@ export async function generateNoteGuide(topic: string): Promise<{ guide: string,
     const prompt = `Para un paciente con "${topic}", genera un objeto JSON con dos propiedades: "guide" (guía detallada en Markdown para redactar una nota SOAP) y "template" (plantilla de nota SOAP en texto plano, pre-llenada con ejemplos y placeholders claros).`;
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'notas',
         config: {
             responseMimeType: "application/json",
             responseSchema: {
@@ -497,6 +515,7 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     
     const response = await generateContentWithFallback({
         contents: prompt,
+        modulo: 'guias',
         config: {
             tools: [{ googleSearch: {} }]
         }
@@ -532,10 +551,8 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     return { text, sources };
 }
 
-export function createChat(): Chat {
-    return getAi().chats.create({
-        model: 'gemini-3.7-flash',
-    });
+export function createChat(modulo: ModuloClinico | string = 'doctoria'): Chat {
+    return crearChatConFailover(modulo);
 }
 
 // --- ARTICLE ANALYZER ---
@@ -673,6 +690,7 @@ export async function analyzeMedicalArticle(content: string | string[], mimeType
         contents: {
             parts: parts
         },
+        modulo: 'analizador',
         config: {
             systemInstruction: ARTICLE_ANALYSIS_SYSTEM_PROMPT,
         }
@@ -729,6 +747,7 @@ Devuelve un JSON estrictamente estructurado.`;
     try {
         const response = await generateContentWithFallback({
             contents: prompt,
+            modulo: 'simulador',
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -1074,8 +1093,6 @@ export async function validateTherapeuticPlanWithTutor(
     plan: PrescribedTherapeuticPlan,
     focusBlock?: 'dieta' | 'soluciones' | 'medicamentos' | 'medidas'
 ): Promise<string> {
-    const ai = getAi();
-
     const planSummaryText = `
 ÓRDENES MÉDICAS HOSPITALARIAS PRESCRITAS POR EL INTERNO:
 
@@ -1266,6 +1283,7 @@ Prescribir medidas aisladas o incompletas (ej. indicar oxígeno sin monitorizar 
         const response = await generateContentWithFallback({
             contents: `RESUMEN CLÍNICO DEL CASO:\n${caseContext}\n\n${planSummaryText}`,
             preferredModel: 'gemini-3.7-flash',
+            modulo: 'simulador',
             config: {
                 systemInstruction: systemPrompt
             }

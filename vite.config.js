@@ -5,6 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiKey = env.VITE_GEMINI_API_KEY || env.GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY || ''
+  const apiKeyResend1 = env.VITE_GEMINI_API_KEY_RESEND_1 || env.GEMINI_API_KEY_RESEND_1 || process.env.GEMINI_API_KEY_RESEND_1 || ''
+  const apiKeyResend2 = env.VITE_GEMINI_API_KEY_RESEND_2 || env.GEMINI_API_KEY_RESEND_2 || process.env.GEMINI_API_KEY_RESEND_2 || ''
+  const apiKeyResend3 = env.VITE_GEMINI_API_KEY_RESEND_3 || env.GEMINI_API_KEY_RESEND_3 || process.env.GEMINI_API_KEY_RESEND_3 || ''
 
   return {
     plugins: [
@@ -93,6 +96,12 @@ export default defineConfig(({ mode }) => {
       'process.env.GEMINI_API_KEY': JSON.stringify(apiKey),
       'process.env.API_KEY': JSON.stringify(apiKey),
       'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(apiKey),
+      'process.env.GEMINI_API_KEY_RESEND_1': JSON.stringify(apiKeyResend1),
+      'import.meta.env.VITE_GEMINI_API_KEY_RESEND_1': JSON.stringify(apiKeyResend1),
+      'process.env.GEMINI_API_KEY_RESEND_2': JSON.stringify(apiKeyResend2),
+      'import.meta.env.VITE_GEMINI_API_KEY_RESEND_2': JSON.stringify(apiKeyResend2),
+      'process.env.GEMINI_API_KEY_RESEND_3': JSON.stringify(apiKeyResend3),
+      'import.meta.env.VITE_GEMINI_API_KEY_RESEND_3': JSON.stringify(apiKeyResend3),
     },
     server: {
       host: true,
