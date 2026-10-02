@@ -11,4 +11,5 @@ export enum Section {
     Scores = 'scores',
     ChatBot = 'chatBot',
     ArticleAnalyzer = 'articleAnalyzer',
+    Library = 'library',
 }

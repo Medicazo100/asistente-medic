@@ -11,6 +11,7 @@ import ChatBot from './components/ChatBot';
 import ClinicalScores from './components/ClinicalScores';
 import Sidebar from './components/layout/Sidebar';
 import ArticleAnalyzer from './components/ArticleAnalyzer';
+import StudyLibrary from './components/StudyLibrary';
 import useLocalStorage from './hooks/useLocalStorage';
 
 const App: React.FC = () => {
@@ -28,6 +29,7 @@ const App: React.FC = () => {
         { id: Section.Guides, Component: <QuickGuides /> },
         { id: Section.Scores, Component: <ClinicalScores /> },
         { id: Section.ChatBot, Component: <ChatBot /> },
+        { id: Section.Library, Component: <StudyLibrary onSectionChange={setActiveSection} /> },
     ], []);
 
     return (

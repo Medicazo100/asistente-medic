@@ -18,6 +18,7 @@ const navItems = [
     { id: Section.Notes, title: 'Guías para Notas', icon: '📝' },
     { id: Section.Guides, title: 'Guías Rápidas', icon: '📚' },
     { id: Section.ChatBot, title: 'DoctorIA', icon: '💬' },
+    { id: Section.Library, title: 'Biblioteca de estudio', icon: '📚' },
 ];
 
 const Sidebar: React.FC<SidebarProps> = ({ activeSection, onSectionChange, isOpen, setIsOpen }) => {

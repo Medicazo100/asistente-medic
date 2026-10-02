@@ -53,6 +53,43 @@ export interface ChatMessage {
     text: string;
 }
 
+export type StudyLibraryKind = 'doctoria' | 'guia' | 'simulacion';
+
+export interface StudyLibraryRecord<T = unknown> {
+    id: string;
+    kind: StudyLibraryKind;
+    title: string;
+    topic: string;
+    topicKey: string;
+    payload: T;
+    createdAt: string;
+    lastViewedAt: string;
+    viewCount: number;
+    isFavorite: boolean;
+    version: 1;
+}
+
+export interface DoctoriaLibraryPayload {
+    question: string;
+    response: string;
+}
+
+export interface GuideLibraryPayload {
+    text: string;
+    sources: GroundingSource[];
+}
+
+export interface SimulationLibraryPayload {
+    topic: string;
+    difficulty: string;
+    clinicalCase: ClinicalCase;
+    allAvailableStudies: { labs: string[]; imaging: string[] };
+    dynamicLabsBuffer: LabResult[];
+    dynamicImagingBuffer: ImagingResult[];
+    preloadedDiagnosis: { text: string; sources: GroundingSource[] } | null;
+    planOptionsCache: TherapeuticPlanOptionsCache | null;
+}
+
 export interface GroundingSource {
     uri: string;
     title: string;

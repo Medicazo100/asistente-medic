@@ -1,9 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { generateQuickGuide } from '../services/geminiService';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
 import { marked } from 'marked';
 import { GroundingSource } from '../types';
+import { GuideLibraryPayload, StudyLibraryRecord } from '../types';
+import {
+    buildStudyRecord,
+    createStudyRecordId,
+    findStudyRecord,
+    markStudyViewed,
+    saveStudyRecord,
+} from '../services/studyLibrary';
 
 const getLinkText = (source: GroundingSource) => {
     if (source.title && source.title.trim() !== '') return source.title;
@@ -19,8 +27,25 @@ const QuickGuides: React.FC = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [guide, setGuide] = useState<{ text: string, sources: GroundingSource[] } | null>(null);
+    const [isCached, setIsCached] = useState(false);
 
-    const handleGenerate = async () => {
+    useEffect(() => {
+        const restoreSavedGuide = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<GuideLibraryPayload>>).detail;
+            if (!record?.payload?.text) return;
+            setTopic(record.topic);
+            setGuide(record.payload);
+            setIsCached(true);
+            setError(null);
+            setIsLoading(false);
+            void markStudyViewed(record.id);
+        };
+
+        window.addEventListener('aiclinic:restore-guia', restoreSavedGuide);
+        return () => window.removeEventListener('aiclinic:restore-guia', restoreSavedGuide);
+    }, []);
+
+    const handleGenerate = async (forceRefresh = false) => {
         if (!topic.trim()) {
             setError('Por favor, ingresa un tema.');
             return;
@@ -28,9 +53,29 @@ const QuickGuides: React.FC = () => {
         setIsLoading(true);
         setError(null);
         setGuide(null);
+        setIsCached(false);
         try {
+            const requestedTopic = topic.trim();
+            const existing = await findStudyRecord<GuideLibraryPayload>('guia', requestedTopic);
+            const cached = forceRefresh ? null : existing;
+            if (cached) {
+                setGuide(cached.payload);
+                setIsCached(true);
+                await markStudyViewed(cached.id);
+                setIsLoading(false);
+                return;
+            }
+
             const result = await generateQuickGuide(topic);
             setGuide(result);
+            await saveStudyRecord(buildStudyRecord({
+                id: createStudyRecordId('guia', requestedTopic),
+                kind: 'guia',
+                title: requestedTopic,
+                topic: requestedTopic,
+                payload: result,
+                existing,
+            }));
         } catch (e) {
             setError('Error al generar la guía. Inténtalo de nuevo.');
             console.error(e);
@@ -43,6 +88,7 @@ const QuickGuides: React.FC = () => {
         setGuide(null);
         setError(null);
         setIsLoading(false);
+        setIsCached(false);
     };
 
     return (
@@ -50,12 +96,22 @@ const QuickGuides: React.FC = () => {
             <div className="flex justify-between items-center mb-4">
                 <h2 className="text-2xl font-bold text-blue-800 dark:text-cyan-300">📚 Guías Rápidas de Consulta</h2>
                 {guide && (
-                     <button
-                        onClick={handleReset}
-                        className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-slate-600 dark:hover:bg-slate-500 font-semibold py-1 px-3 rounded-lg border border-gray-300 dark:border-slate-500"
-                    >
-                        Reset
-                    </button>
+                    <div className="flex flex-wrap gap-2 justify-end">
+                        {isCached && <span className="self-center text-xs font-semibold text-emerald-700 dark:text-emerald-400">Respuesta local</span>}
+                        <button
+                            onClick={() => void handleGenerate(true)}
+                            disabled={isLoading}
+                            className="text-sm bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 font-semibold py-1 px-3 rounded-lg"
+                        >
+                            Actualizar con IA
+                        </button>
+                        <button
+                            onClick={handleReset}
+                            className="text-sm bg-gray-200 hover:bg-gray-300 text-gray-700 dark:bg-slate-600 dark:hover:bg-slate-500 font-semibold py-1 px-3 rounded-lg border border-gray-300 dark:border-slate-500"
+                        >
+                            Reset
+                        </button>
+                    </div>
                 )}
             </div>
             
@@ -64,8 +120,8 @@ const QuickGuides: React.FC = () => {
             <div className="space-y-4 mb-6">
                 <p className="text-gray-600 dark:text-gray-400">Obtén un resumen práctico y basado en evidencia, con prioridad en Guías de Práctica Clínica Mexicanas.</p>
                 <div className="flex items-center gap-2">
-                    <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Ej: Manejo de Crisis Hipertensiva" className="w-full px-4 py-3 bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-blue-500 dark:focus:border-purple-500 focus:ring-1 focus:ring-blue-500 dark:focus:ring-purple-500 transition-all duration-200" onKeyDown={e => e.key === 'Enter' && handleGenerate} />
-                    <button onClick={handleGenerate} disabled={isLoading} className="bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors dark:bg-purple-600 dark:hover:bg-purple-700 dark:disabled:bg-purple-400 whitespace-nowrap shadow-md border-2 border-transparent">
+                    <input type="text" value={topic} onChange={e => setTopic(e.target.value)} placeholder="Ej: Manejo de Crisis Hipertensiva" className="w-full px-4 py-3 bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded-lg text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:border-blue-500 dark:focus:border-purple-500 focus:ring-1 focus:ring-blue-500 dark:focus:ring-purple-500 transition-all duration-200" onKeyDown={e => e.key === 'Enter' && handleGenerate()} />
+                    <button onClick={() => void handleGenerate()} disabled={isLoading} className="bg-blue-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-blue-700 disabled:bg-blue-300 transition-colors dark:bg-purple-600 dark:hover:bg-purple-700 dark:disabled:bg-purple-400 whitespace-nowrap shadow-md border-2 border-transparent">
                         {isLoading ? '...' : 'Buscar'}
                     </button>
                 </div>

@@ -10,6 +10,7 @@ import {
     crearChatConFailover, 
     obtenerPoolLlaves, 
     cargarLlavesConfiguradas, 
+    aplicarLimiteTokens,
     ModuloClinico, 
     InfoLlave 
 } from './apiRouter';
@@ -19,7 +20,8 @@ export {
     llamarGeminiConFailover, 
     obtenerPoolLlaves, 
     cargarLlavesConfiguradas, 
-    crearChatConFailover 
+    crearChatConFailover,
+    aplicarLimiteTokens
 };
 export type { ModuloClinico, InfoLlave };
 
@@ -59,8 +61,9 @@ const TEXT_MODELS = [
 ];
 
 /**
- * Genera contenido con reintento y alternancia automática entre modelos y llaves.
- * Integra el router con prioridades por módulo (Caso A: Simulador vs Caso B: Demás módulos).
+ * Genera contenido usando la API principal y fallback entre modelos.
+ * El límite de salida es de 800 tokens para módulos generales y de 1000 a
+ * 1200 para contenido clínico estructurado o de mayor razonamiento.
  */
 export async function generateContentWithFallback(params: {
     contents: any;
@@ -68,6 +71,8 @@ export async function generateContentWithFallback(params: {
     preferredModel?: string;
     modulo?: ModuloClinico | string;
 }): Promise<any> {
+    const configConLimite = aplicarLimiteTokens(params.config, params.modulo);
+
     return llamarGeminiConFailover(async (ai, infoLlave) => {
         const modelsToTry = params.preferredModel 
             ? [params.preferredModel, ...TEXT_MODELS.filter(m => m !== params.preferredModel)]
@@ -79,30 +84,26 @@ export async function generateContentWithFallback(params: {
                 const response = await ai.models.generateContent({
                     model: model,
                     contents: params.contents,
-                    config: params.config
+                    config: configConLimite
                 });
                 return response;
             } catch (err: any) {
                 const errMsg = err?.message || String(err);
                 lastError = err;
 
-                // Si el error es límite de uso o cuota agotada (429 / RESOURCE_EXHAUSTED),
-                // interrumpimos de volada la prueba de modelos con esta misma llave para que
-                // llamarGeminiConFailover salte de inmediato a la siguiente llave del pool.
-                if (errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-                    console.warn(
-                        `[AICLINIC Router] Cuota agotada (429) en "${infoLlave.nombre}" con modelo "${model}". ` +
-                        `Lanzando evento para failover inmediato de llave...`
-                    );
-                    throw err;
-                }
-
                 console.warn(`[AICLINIC] Intento con modelo ${model} no completado (${infoLlave.nombre}):`, errMsg);
 
-                // Si falló por restricciones de herramientas/grounding, reintentar sin tools en el mismo modelo
-                if (params.config?.tools && (errMsg.includes('grounding') || errMsg.includes('tools'))) {
+                // Si la búsqueda web o grounding falla, reintentar el mismo modelo sin tools.
+                const mensajeNormalizado = errMsg.toLowerCase();
+                if (configConLimite?.tools && (
+                    mensajeNormalizado.includes('grounding') ||
+                    mensajeNormalizado.includes('tools') ||
+                    mensajeNormalizado.includes('429') ||
+                    mensajeNormalizado.includes('quota') ||
+                    mensajeNormalizado.includes('resource_exhausted')
+                )) {
                     try {
-                        const fallbackConfig = { ...params.config };
+                        const fallbackConfig = { ...configConLimite };
                         delete fallbackConfig.tools;
                         const responseWithoutTools = await ai.models.generateContent({
                             model: model,

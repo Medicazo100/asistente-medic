@@ -7,13 +7,19 @@ import {
 } from '../services/geminiService';
 import { 
     ClinicalCase, AnamnesisTurn, LabResult, ImagingResult, GroundingSource,
-    TherapeuticPlanOptionsCache, PrescribedTherapeuticPlan 
+    TherapeuticPlanOptionsCache, PrescribedTherapeuticPlan, SimulationLibraryPayload, StudyLibraryRecord
 } from '../types';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
 import TherapeuticPlanSection from './TherapeuticPlanSection';
 import useLocalStorage from '../hooks/useLocalStorage';
 import { getInternetMedicalImageUrl, getInternetFallbackImage } from '../services/medicalImageRenderer';
+import {
+    getStudyRecordById,
+    createSimulationRecordId,
+    normalizeStudyTopic,
+    saveStudyRecord,
+} from '../services/studyLibrary';
 
 
 const getLinkText = (source: GroundingSource) => {
@@ -75,6 +81,93 @@ const MedicalSimulator: React.FC = () => {
     const backgroundPipelinePromiseRef = useRef<Promise<{ labs: LabResult[], imaging: ImagingResult[] }> | null>(null);
     const prefetchingDiagnosisPromiseRef = useRef<Promise<{text: string, sources: GroundingSource[]}> | null>(null);
     const planPrefetchPromiseRef = useRef<Promise<TherapeuticPlanOptionsCache> | null>(null);
+
+    useEffect(() => {
+        const restoreSavedSimulation = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<SimulationLibraryPayload>>).detail;
+            const snapshot = record?.payload;
+            if (!snapshot?.clinicalCase) return;
+
+            backgroundPipelinePromiseRef.current = null;
+            prefetchingDiagnosisPromiseRef.current = null;
+            planPrefetchPromiseRef.current = null;
+            setTopic(snapshot.topic);
+            setDifficulty(snapshot.difficulty);
+            setClinicalCase(snapshot.clinicalCase);
+            setStep(1);
+
+            // Nueva sesión pedagógica: no se arrastra la anamnesis ni las selecciones del estudiante anterior.
+            setAnamnesisHistory([]);
+            setSelectedStudies({ labs: [], imaging: [] });
+            setLabResults([]);
+            setImagingResults([]);
+            setFinalDiagnosis(null);
+            setShowTherapeuticPlan(false);
+            setPrescribedPlan({
+                tipoDieta: '',
+                justificacionDieta: '',
+                soluciones: [],
+                medicamentos: [],
+                medidasGenerales: [],
+                medidasAdicionalesEnfermeria: ''
+            });
+
+            // Los recursos precargados quedan disponibles internamente, no visibles todavía.
+            setAllAvailableStudies(snapshot.allAvailableStudies || { labs: [], imaging: [] });
+            setDynamicLabsBuffer(snapshot.dynamicLabsBuffer || []);
+            setDynamicImagingBuffer(snapshot.dynamicImagingBuffer || []);
+            setPreloadedDiagnosis(snapshot.preloadedDiagnosis || null);
+            setPlanOptionsCache(snapshot.planOptionsCache || null);
+            setIsBufferingStudies(false);
+            setIsPrefetchingDiagnosis(false);
+            setIsLoading(false);
+            setLoadingStudies(new Set());
+            setError(null);
+            setUserQuestion('');
+        };
+
+        window.addEventListener('aiclinic:restore-simulation', restoreSavedSimulation);
+        return () => window.removeEventListener('aiclinic:restore-simulation', restoreSavedSimulation);
+    }, []);
+
+    useEffect(() => {
+        if (!clinicalCase || step === 0) return;
+        const hasPreparedResources = allAvailableStudies.labs.length > 0
+            || allAvailableStudies.imaging.length > 0
+            || dynamicLabsBuffer.length > 0
+            || dynamicImagingBuffer.length > 0;
+        if (!hasPreparedResources) return;
+
+        const recordId = createSimulationRecordId(topic, clinicalCase);
+        const payload: SimulationLibraryPayload = {
+            topic,
+            difficulty,
+            clinicalCase,
+            allAvailableStudies,
+            dynamicLabsBuffer,
+            dynamicImagingBuffer,
+            preloadedDiagnosis,
+            planOptionsCache,
+        };
+
+        void (async () => {
+            const existing = await getStudyRecordById<SimulationLibraryPayload>(recordId);
+            const now = new Date().toISOString();
+            await saveStudyRecord({
+                id: recordId,
+                kind: 'simulacion',
+                title: clinicalCase.caseTitle,
+                topic,
+                topicKey: normalizeStudyTopic(topic),
+                payload,
+                createdAt: existing?.createdAt || now,
+                lastViewedAt: existing?.lastViewedAt || now,
+                viewCount: existing?.viewCount || 1,
+                isFavorite: existing?.isFavorite || false,
+                version: 1,
+            });
+        })();
+    }, [allAvailableStudies, clinicalCase, difficulty, dynamicImagingBuffer, dynamicLabsBuffer, planOptionsCache, preloadedDiagnosis, step, topic]);
 
     const startBackgroundPlanPrefetch = (caseData: ClinicalCase, currentTopic?: string) => {
         const promise = (async () => {
@@ -218,6 +311,7 @@ const MedicalSimulator: React.FC = () => {
         setIsLoading(true); setError(null);
         try {
             // Limpiar buffers y estudios del caso previo
+            backgroundPipelinePromiseRef.current = null;
             setDynamicLabsBuffer([]);
             setDynamicImagingBuffer([]);
             setPreloadedDiagnosis(null);

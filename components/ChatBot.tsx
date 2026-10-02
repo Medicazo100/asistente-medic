@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createChat } from '../services/geminiService';
-import { ChatMessage } from '../types';
+import { ChatMessage, DoctoriaLibraryPayload, StudyLibraryRecord } from '../types';
 import Card from './ui/Card';
 import { marked } from 'marked';
 import { Chat } from '@google/genai';
 import useLocalStorage from '../hooks/useLocalStorage';
+import {
+    buildStudyRecord,
+    createStudyRecordId,
+    findStudyRecord,
+    markStudyViewed,
+    saveStudyRecord,
+} from '../services/studyLibrary';
 
 const ChatBot: React.FC = () => {
     const [chat, setChat] = useState<Chat | null>(null);
@@ -38,17 +45,45 @@ const ChatBot: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
+    useEffect(() => {
+        const restoreSavedResponse = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<DoctoriaLibraryPayload>>).detail;
+            if (!record?.payload?.response) return;
+            setMessages(prev => [
+                ...prev,
+                { role: 'user', text: record.payload.question },
+                { role: 'model', text: record.payload.response },
+            ]);
+            void markStudyViewed(record.id);
+        };
+
+        window.addEventListener('aiclinic:restore-doctoria', restoreSavedResponse);
+        return () => window.removeEventListener('aiclinic:restore-doctoria', restoreSavedResponse);
+    }, [setMessages]);
+
     const handleSend = async () => {
         if (!input.trim() || !chat) return;
 
-        const userMessage: ChatMessage = { role: 'user', text: input };
+        const question = input.trim();
+        const userMessage: ChatMessage = { role: 'user', text: question };
         setMessages(prev => [...prev, userMessage, { role: 'model', text: '' }]);
         setInput('');
         setIsLoading(true);
 
         try {
+            const cached = await findStudyRecord<DoctoriaLibraryPayload>('doctoria', question);
+            if (cached) {
+                setMessages(prev => {
+                    const nextMessages = [...prev];
+                    nextMessages[nextMessages.length - 1] = { role: 'model', text: cached.payload.response };
+                    return nextMessages;
+                });
+                await markStudyViewed(cached.id);
+                return;
+            }
+
             // Send message to Gemini
-            const result = await chat.sendMessageStream({ message: input });
+            const result = await chat.sendMessageStream({ message: question });
             let text = '';
             for await (const chunk of result) {
                  text += chunk.text;
@@ -59,6 +94,16 @@ const ChatBot: React.FC = () => {
                      }
                      return newMessages;
                  });
+            }
+
+            if (text.trim()) {
+                await saveStudyRecord(buildStudyRecord({
+                    id: createStudyRecordId('doctoria', question),
+                    kind: 'doctoria',
+                    title: question,
+                    topic: question,
+                    payload: { question, response: text },
+                }));
             }
         } catch (error) {
             console.error("Chat error:", error);
