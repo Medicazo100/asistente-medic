@@ -197,7 +197,7 @@ async function syncRecordToCloud(record: StudyLibraryRecord): Promise<void> {
             view_count: record.viewCount,
             is_favorite: record.isFavorite,
             version: record.version,
-        }, { onConflict: 'user_id,id' });
+        }, { onConflict: 'id' });
         if (error) throw error;
     } catch (error) {
         if (!cloudWarningShown) {

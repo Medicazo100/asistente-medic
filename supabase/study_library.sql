@@ -1,52 +1,47 @@
--- Referencia para aplicar en el proyecto Supabase cuando se autorice la sincronización remota.
--- No se ejecuta automáticamente en el entorno local.
+-- Esquema de la Biblioteca de Estudio Compartida para Supabase (AICLINIC)
+-- Permite que cualquier dispositivo que abra el enlace vea los casos y articulos compartidos.
+
 create table if not exists public.study_library (
-    user_id uuid not null references auth.users(id) on delete cascade,
-    id text not null,
-    kind text not null check (kind in ('doctoria', 'guia', 'simulacion')),
+    id text not null primary key,
+    user_id text,
+    kind text not null check (kind in ('doctoria', 'guia', 'simulacion', 'articulo', 'quiz')),
     title text not null,
     topic text not null,
     topic_key text not null,
     payload jsonb not null,
-    created_at timestamptz not null,
-    last_viewed_at timestamptz not null,
+    created_at timestamptz not null default now(),
+    last_viewed_at timestamptz not null default now(),
     view_count integer not null default 1 check (view_count > 0),
     is_favorite boolean not null default false,
-    version integer not null default 1,
-    primary key (user_id, id)
+    version integer not null default 1
 );
 
 create index if not exists study_library_recent_idx
-    on public.study_library (user_id, last_viewed_at desc);
+    on public.study_library (last_viewed_at desc);
 
 create index if not exists study_library_kind_idx
-    on public.study_library (user_id, kind, last_viewed_at desc);
+    on public.study_library (kind, last_viewed_at desc);
 
 alter table public.study_library enable row level security;
 
-grant select, insert, update, delete on public.study_library to authenticated;
-
-drop policy if exists "study_library_select_own" on public.study_library;
-create policy "study_library_select_own"
+-- Politicas para permitir lectura y guardado compartido entre dispositivos por el mismo enlace
+drop policy if exists "study_library_select_public" on public.study_library;
+create policy "study_library_select_public"
     on public.study_library for select
-    to authenticated
-    using ((select auth.uid()) = user_id);
+    to anon, authenticated
+    using (true);
 
-drop policy if exists "study_library_insert_own" on public.study_library;
-create policy "study_library_insert_own"
+drop policy if exists "study_library_insert_public" on public.study_library;
+create policy "study_library_insert_public"
     on public.study_library for insert
-    to authenticated
-    with check ((select auth.uid()) = user_id);
+    to anon, authenticated
+    with check (true);
 
-drop policy if exists "study_library_update_own" on public.study_library;
-create policy "study_library_update_own"
+drop policy if exists "study_library_update_public" on public.study_library;
+create policy "study_library_update_public"
     on public.study_library for update
-    to authenticated
-    using ((select auth.uid()) = user_id)
-    with check ((select auth.uid()) = user_id);
+    to anon, authenticated
+    using (true)
+    with check (true);
 
-drop policy if exists "study_library_delete_own" on public.study_library;
-create policy "study_library_delete_own"
-    on public.study_library for delete
-    to authenticated
-    using ((select auth.uid()) = user_id);
+grant select, insert, update on public.study_library to anon, authenticated;
