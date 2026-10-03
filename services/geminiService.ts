@@ -196,6 +196,35 @@ export async function generateContentWithFallback(params: {
 }
 
 
+/**
+ * Mezcla aleatoriamente las opciones de una pregunta (Fisher-Yates) para que la respuesta correcta
+ * se distribuya de forma totalmente aleatoria y equitativa (25% de probabilidad en cada una de las 4 opciones),
+ * evitando la concentración predecible en las primeras opciones.
+ */
+function aleatorizarOpcionesPregunta(pregunta: QuizQuestion): QuizQuestion {
+    if (!pregunta || !Array.isArray(pregunta.options) || pregunta.options.length < 2) {
+        return pregunta;
+    }
+
+    const opcionesMezcladas = [...pregunta.options];
+    for (let i = opcionesMezcladas.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [opcionesMezcladas[i], opcionesMezcladas[j]] = [opcionesMezcladas[j], opcionesMezcladas[i]];
+    }
+
+    const respuestaNormalizada = (pregunta.correctAnswer || '').trim();
+    const existeEnOpciones = opcionesMezcladas.some(opt => opt.trim() === respuestaNormalizada);
+    if (!existeEnOpciones && opcionesMezcladas.length > 0) {
+        opcionesMezcladas[Math.floor(Math.random() * opcionesMezcladas.length)] = respuestaNormalizada;
+    }
+
+    return {
+        ...pregunta,
+        options: opcionesMezcladas,
+        correctAnswer: respuestaNormalizada,
+    };
+}
+
 export async function generateQuiz(topic: string, difficulty: string, numQuestions: number): Promise<QuizQuestion[]> {
     const difficultyDescriptions: { [key: string]: string } = {
         'Interno': 'con un nivel de dificultad para un médico interno en sus primeras rotaciones. Las preguntas deben cubrir conceptos fundamentales, presentaciones clínicas típicas y tratamientos de primera línea.',
@@ -203,12 +232,21 @@ export async function generateQuiz(topic: string, difficulty: string, numQuestio
         'Dr. House': 'con un nivel de dificultad para un especialista o para un desafío diagnóstico tipo "Dr. House". Las preguntas deben ser sobre casos atípicos, enfermedades raras (zebras), detalles sutiles de la fisiopatología, o interacciones farmacológicas poco comunes.'
     };
     const difficultyPrompt = difficultyDescriptions[difficulty] || difficultyDescriptions['Interno'];
-    const prompt = `Genera un cuestionario de ${numQuestions} preguntas de opción múltiple sobre "${topic}" para médicos internos, ${difficultyPrompt}. Cada pregunta debe tener 4 opciones. Una opción debe ser la correcta. Proporciona la respuesta correcta en texto y una retroalimentación concisa para cada pregunta, explicando por qué la respuesta es correcta.`;
+    const cantidadObjetivo = Math.max(1, Math.min(Number(numQuestions) || 10, 30));
+
+    const prompt = `Genera un cuestionario de EXACTAMENTE ${cantidadObjetivo} preguntas de opción múltiple sobre "${topic}" para médicos internos, ${difficultyPrompt}.
+
+REGLAS OBLIGATORIAS Y CRÍTICAS:
+1. CANTIDAD EXACTA: El arreglo JSON DEBE CONTENER OBLIGATORIAMENTE EXACTAMENTE ${cantidadObjetivo} OBJETOS DE PREGUNTAS. No te detengas antes ni generes menos de ${cantidadObjetivo}.
+2. FORMATO DE 4 OPCIONES: Cada una de las ${cantidadObjetivo} preguntas debe tener exactamente 4 opciones de respuesta diferenciadas en su arreglo 'options'.
+3. ALEATORIEDAD DE POSICIÓN: Distribuye la opción correcta de manera variada y aleatoria entre las 4 posiciones (A, B, C, D). Está terminantemente prohibido concentrar las respuestas correctas en la primera o segunda opción.
+4. RETROALIMENTACIÓN CONCISA: Explica en 1 o 2 oraciones concisas y directas por qué la respuesta es la correcta, para garantizar que la generación de las ${cantidadObjetivo} preguntas se complete sin sobrepasar la longitud.`;
 
     const response = await generateContentWithFallback({
         contents: prompt,
         modulo: 'quizzes',
         config: {
+            maxOutputTokens: 5120,
             responseMimeType: "application/json",
             responseSchema: {
                 type: Type.ARRAY,
@@ -225,7 +263,51 @@ export async function generateQuiz(topic: string, difficulty: string, numQuestio
             }
         }
     });
-    return safeJsonParse(response.text || '');
+
+    let rawQuestions: QuizQuestion[] = safeJsonParse(response.text || '');
+    if (!Array.isArray(rawQuestions)) {
+        rawQuestions = [];
+    }
+
+    // Si por contingencia la IA devolvió menos preguntas de las solicitadas, completar las faltantes
+    if (rawQuestions.length < cantidadObjetivo && rawQuestions.length > 0) {
+        const faltantes = cantidadObjetivo - rawQuestions.length;
+        try {
+            const promptFaltantes = `Genera EXACTAMENTE ${faltantes} preguntas de opción múltiple adicionales sobre "${topic}" (${difficultyPrompt}) que no se repitan. Cada pregunta debe tener exactamente 4 opciones con respuestas correctas en posiciones variadas y explicación concisa.`;
+            const extraResponse = await generateContentWithFallback({
+                contents: promptFaltantes,
+                modulo: 'quizzes',
+                config: {
+                    maxOutputTokens: 3072,
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.ARRAY,
+                        items: {
+                            type: Type.OBJECT,
+                            properties: {
+                                question: { type: Type.STRING },
+                                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                                correctAnswer: { type: Type.STRING },
+                                feedback: { type: Type.STRING }
+                            },
+                            required: ['question', 'options', 'correctAnswer', 'feedback']
+                        }
+                    }
+                }
+            });
+            const extraQuestions = safeJsonParse(extraResponse.text || '');
+            if (Array.isArray(extraQuestions)) {
+                rawQuestions = [...rawQuestions, ...extraQuestions];
+            }
+        } catch (fillErr) {
+            console.warn('[AICLINIC] No se pudieron generar preguntas de relleno:', fillErr);
+        }
+    }
+
+    // Asegurar que devolvemos exactamente la cantidad solicitada y mezclar programáticamente las opciones
+    return rawQuestions
+        .slice(0, cantidadObjetivo)
+        .map(pregunta => aleatorizarOpcionesPregunta(pregunta));
 }
 
 export async function generateClinicalCase(topic: string, difficulty: string): Promise<ClinicalCase> {

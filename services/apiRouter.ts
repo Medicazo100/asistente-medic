@@ -38,7 +38,7 @@ const clienteCache = new Map<string, GoogleGenAI>();
 const LIMITES_TOKENS: Record<string, number> = {
     simulador: 4096,
     analizador: 6144,
-    quizzes: 3072,
+    quizzes: 5120,
     notas: 3072,
     doctoria: 2500,
     guias: 4096,
@@ -49,7 +49,7 @@ const MODELOS_CHAT = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash'
 const TIMEOUTS_SOLICITUD_MS: Record<string, number> = {
     simulador: 45000,
     analizador: 60000,
-    quizzes: 40000,
+    quizzes: 50000,
     notas: 35000,
     guias: 40000,
     doctoria: 30000,
