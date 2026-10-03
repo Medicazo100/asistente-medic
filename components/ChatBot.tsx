@@ -58,7 +58,26 @@ const ChatBot: React.FC = () => {
         };
 
         window.addEventListener('aiclinic:restore-doctoria', restoreSavedResponse);
-        return () => window.removeEventListener('aiclinic:restore-doctoria', restoreSavedResponse);
+
+        const checkPendingDoctoria = () => {
+            try {
+                const pending = sessionStorage.getItem('aiclinic:pending-doctoria');
+                if (pending) {
+                    sessionStorage.removeItem('aiclinic:pending-doctoria');
+                    restoreSavedResponse(new CustomEvent('restore', { detail: JSON.parse(pending) }));
+                }
+            } catch (err) {
+                console.warn('Error al restaurar DoctorIA pendiente:', err);
+            }
+        };
+
+        checkPendingDoctoria();
+        window.addEventListener('focus', checkPendingDoctoria);
+
+        return () => {
+            window.removeEventListener('aiclinic:restore-doctoria', restoreSavedResponse);
+            window.removeEventListener('focus', checkPendingDoctoria);
+        };
     }, [setMessages]);
 
     const handleSend = async () => {

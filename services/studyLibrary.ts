@@ -120,14 +120,18 @@ function openDatabase(): Promise<IDBDatabase | null> {
 
 async function readAllLocalRecords(): Promise<StudyLibraryRecord[]> {
     const database = await openDatabase();
-    if (!database) return getFallbackRecords();
-
-    return new Promise((resolve) => {
-        const transaction = database.transaction(STORE_NAME, 'readonly');
-        const request = transaction.objectStore(STORE_NAME).getAll();
-        request.onsuccess = () => resolve((request.result || []) as StudyLibraryRecord[]);
-        request.onerror = () => resolve(getFallbackRecords());
-    });
+    let records: StudyLibraryRecord[] = [];
+    if (!database) {
+        records = getFallbackRecords();
+    } else {
+        records = await new Promise((resolve) => {
+            const transaction = database.transaction(STORE_NAME, 'readonly');
+            const request = transaction.objectStore(STORE_NAME).getAll();
+            request.onsuccess = () => resolve((request.result || []) as StudyLibraryRecord[]);
+            request.onerror = () => resolve(getFallbackRecords());
+        });
+    }
+    return records.filter(isValidStudyRecord);
 }
 
 async function writeLocalRecord(record: StudyLibraryRecord): Promise<void> {
@@ -160,11 +164,48 @@ async function getCloudClient(): Promise<SupabaseClient | null> {
     return supabaseClient;
 }
 
-async function getCloudUserId(client: SupabaseClient): Promise<string | null> {
-    const current = await client.auth.getUser();
-    if (current.data.user?.id) return current.data.user.id;
-    const anonymous = await client.auth.signInAnonymously();
-    return anonymous.data.user?.id || null;
+function getLocalAnonymousUserId(): string {
+    if (typeof window === 'undefined' || !window.localStorage) return 'shared_anon';
+    try {
+        let anonId = window.localStorage.getItem('aiclinic_anon_user_id');
+        if (!anonId) {
+            anonId = 'anon_' + Math.random().toString(36).substring(2, 12);
+            window.localStorage.setItem('aiclinic_anon_user_id', anonId);
+        }
+        return anonId;
+    } catch {
+        return 'shared_anon';
+    }
+}
+
+async function getCloudUserId(client: SupabaseClient): Promise<string> {
+    try {
+        const current = await client.auth.getUser();
+        if (current.data?.user?.id) return current.data.user.id;
+    } catch {
+        // Ignorar si auth no está activo
+    }
+    return getLocalAnonymousUserId();
+}
+
+export function isValidStudyRecord(record: unknown): record is StudyLibraryRecord {
+    if (!record || typeof record !== 'object') return false;
+    const r = record as StudyLibraryRecord;
+    if (!r.id || r.id === 'test:connectivity') return false;
+    if (!r.kind || !r.payload || typeof r.payload !== 'object') return false;
+    if (r.kind === 'simulacion') {
+        const payload = r.payload as any;
+        if (!payload.clinicalCase || !payload.clinicalCase.patientPresentation) return false;
+    }
+    if (r.kind === 'quiz') {
+        const payload = r.payload as any;
+        if (!Array.isArray(payload.questions) || payload.questions.length === 0) return false;
+    }
+    if (r.kind === 'articulo') {
+        const payload = r.payload as any;
+        if (!payload.analysis && !payload.content) return false;
+    }
+    return true;
 }
 
 function removeLargeInlineImages(value: unknown): unknown {
@@ -179,11 +220,11 @@ function removeLargeInlineImages(value: unknown): unknown {
 }
 
 async function syncRecordToCloud(record: StudyLibraryRecord): Promise<void> {
+    if (!isValidStudyRecord(record)) return;
     const client = await getCloudClient();
     if (!client) return;
     try {
         const userId = await getCloudUserId(client);
-        if (!userId) return;
         const { error } = await client.from(CLOUD_TABLE).upsert({
             user_id: userId,
             id: record.id,
@@ -198,7 +239,10 @@ async function syncRecordToCloud(record: StudyLibraryRecord): Promise<void> {
             is_favorite: record.isFavorite,
             version: record.version,
         }, { onConflict: 'id' });
-        if (error) throw error;
+        if (error) {
+            console.warn('Error al sincronizar con Supabase:', error);
+            throw error;
+        }
     } catch (error) {
         if (!cloudWarningShown) {
             cloudWarningShown = true;
@@ -220,6 +264,7 @@ export async function hydrateStudyLibraryFromCloud(): Promise<void> {
             .limit(50);
         if (error) throw error;
         for (const item of data || []) {
+            if (item.id === 'test:connectivity') continue;
             const remoteRecord: StudyLibraryRecord = {
                 id: item.id,
                 kind: item.kind,
@@ -233,6 +278,7 @@ export async function hydrateStudyLibraryFromCloud(): Promise<void> {
                 isFavorite: Boolean(item.is_favorite),
                 version: 1,
             };
+            if (!isValidStudyRecord(remoteRecord)) continue;
             const local = (await readAllLocalRecords()).find((record) => record.id === remoteRecord.id);
             if (!local || new Date(remoteRecord.lastViewedAt).getTime() > new Date(local.lastViewedAt).getTime()) {
                 await writeLocalRecord(remoteRecord);

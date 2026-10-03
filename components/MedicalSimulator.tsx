@@ -183,7 +183,26 @@ const MedicalSimulator: React.FC = () => {
         };
 
         window.addEventListener('aiclinic:restore-simulation', restoreSavedSimulation);
-        return () => window.removeEventListener('aiclinic:restore-simulation', restoreSavedSimulation);
+
+        const checkPendingSimulation = () => {
+            try {
+                const pending = sessionStorage.getItem('aiclinic:pending-simulation');
+                if (pending) {
+                    sessionStorage.removeItem('aiclinic:pending-simulation');
+                    restoreSavedSimulation(new CustomEvent('restore', { detail: JSON.parse(pending) }));
+                }
+            } catch (err) {
+                console.warn('Error al restaurar simulación pendiente:', err);
+            }
+        };
+
+        checkPendingSimulation();
+        window.addEventListener('focus', checkPendingSimulation);
+
+        return () => {
+            window.removeEventListener('aiclinic:restore-simulation', restoreSavedSimulation);
+            window.removeEventListener('focus', checkPendingSimulation);
+        };
     }, []);
 
     useEffect(() => {

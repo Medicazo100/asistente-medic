@@ -19,22 +19,45 @@ const QuizGenerator: React.FC = () => {
     const [score, setScore] = useState(0);
     const isQuizFinished = questions.length > 0 && currentQuestionIndex >= questions.length;
 
+    const applySavedQuiz = (record: StudyLibraryRecord<QuizLibraryPayload> | null | undefined) => {
+        if (!record?.payload?.questions || !Array.isArray(record.payload.questions) || record.payload.questions.length === 0) return;
+        setTopic(record.payload.topic || record.topic || '');
+        setDifficulty(record.payload.difficulty || 'Interno');
+        setNumQuestions(record.payload.questions.length);
+        setQuestions(record.payload.questions);
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setIsAnswered(false);
+        setSelectedAnswer(null);
+        setError(null);
+    };
+
     useEffect(() => {
         const restoreSavedQuiz = (event: Event) => {
             const record = (event as CustomEvent<StudyLibraryRecord<QuizLibraryPayload>>).detail;
-            if (!record?.payload?.questions || record.payload.questions.length === 0) return;
-            setTopic(record.payload.topic || '');
-            setDifficulty(record.payload.difficulty || 'Interno');
-            setNumQuestions(record.payload.questions.length);
-            setQuestions(record.payload.questions);
-            setCurrentQuestionIndex(0);
-            setScore(0);
-            setIsAnswered(false);
-            setSelectedAnswer(null);
-            setError(null);
+            applySavedQuiz(record);
         };
         window.addEventListener('aiclinic:restore-quiz', restoreSavedQuiz);
-        return () => window.removeEventListener('aiclinic:restore-quiz', restoreSavedQuiz);
+
+        const checkPendingQuiz = () => {
+            try {
+                const pending = sessionStorage.getItem('aiclinic:pending-quiz');
+                if (pending) {
+                    sessionStorage.removeItem('aiclinic:pending-quiz');
+                    applySavedQuiz(JSON.parse(pending));
+                }
+            } catch (err) {
+                console.warn('Error al restaurar quiz pendiente:', err);
+            }
+        };
+
+        checkPendingQuiz();
+        window.addEventListener('focus', checkPendingQuiz);
+
+        return () => {
+            window.removeEventListener('aiclinic:restore-quiz', restoreSavedQuiz);
+            window.removeEventListener('focus', checkPendingQuiz);
+        };
     }, []);
 
     const handleGenerateQuiz = async () => {

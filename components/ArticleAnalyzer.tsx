@@ -32,8 +32,7 @@ const ArticleAnalyzer: React.FC = () => {
     const analysisRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        const restoreSavedArticle = (event: Event) => {
-            const record = (event as CustomEvent<StudyLibraryRecord<ArticleLibraryPayload>>).detail;
+        const applySavedArticle = (record: StudyLibraryRecord<ArticleLibraryPayload> | null | undefined) => {
             if (!record?.payload?.analysis) return;
             setAnalysis(record.payload.analysis);
             if (record.payload.textInput) {
@@ -42,8 +41,32 @@ const ArticleAnalyzer: React.FC = () => {
             setError(null);
             setTimeout(() => analysisRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
         };
+
+        const restoreSavedArticle = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<ArticleLibraryPayload>>).detail;
+            applySavedArticle(record);
+        };
         window.addEventListener('aiclinic:restore-articulo', restoreSavedArticle);
-        return () => window.removeEventListener('aiclinic:restore-articulo', restoreSavedArticle);
+
+        const checkPendingArticle = () => {
+            try {
+                const pending = sessionStorage.getItem('aiclinic:pending-articulo');
+                if (pending) {
+                    sessionStorage.removeItem('aiclinic:pending-articulo');
+                    applySavedArticle(JSON.parse(pending));
+                }
+            } catch (err) {
+                console.warn('Error al restaurar artículo pendiente:', err);
+            }
+        };
+
+        checkPendingArticle();
+        window.addEventListener('focus', checkPendingArticle);
+
+        return () => {
+            window.removeEventListener('aiclinic:restore-articulo', restoreSavedArticle);
+            window.removeEventListener('focus', checkPendingArticle);
+        };
     }, []);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

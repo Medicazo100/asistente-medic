@@ -71,18 +71,23 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
     const openRecord = async (record: StudyLibraryRecord) => {
         await markStudyViewed(record.id);
         if (record.kind === 'simulacion') {
+            try { sessionStorage.setItem('aiclinic:pending-simulation', JSON.stringify(record)); } catch {}
             window.dispatchEvent(new CustomEvent('aiclinic:restore-simulation', { detail: record }));
             onSectionChange(Section.Simulator);
         } else if (record.kind === 'articulo') {
+            try { sessionStorage.setItem('aiclinic:pending-articulo', JSON.stringify(record)); } catch {}
             window.dispatchEvent(new CustomEvent('aiclinic:restore-articulo', { detail: record }));
             onSectionChange(Section.ArticleAnalyzer);
         } else if (record.kind === 'quiz') {
+            try { sessionStorage.setItem('aiclinic:pending-quiz', JSON.stringify(record)); } catch {}
             window.dispatchEvent(new CustomEvent('aiclinic:restore-quiz', { detail: record }));
             onSectionChange(Section.Quiz);
         } else if (record.kind === 'doctoria') {
+            try { sessionStorage.setItem('aiclinic:pending-doctoria', JSON.stringify(record)); } catch {}
             window.dispatchEvent(new CustomEvent('aiclinic:restore-doctoria', { detail: record }));
             onSectionChange(Section.ChatBot);
         } else {
+            try { sessionStorage.setItem('aiclinic:pending-guia', JSON.stringify(record)); } catch {}
             window.dispatchEvent(new CustomEvent('aiclinic:restore-guia', { detail: record }));
             onSectionChange(Section.Guides);
         }

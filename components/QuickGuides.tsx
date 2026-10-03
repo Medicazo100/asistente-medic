@@ -42,7 +42,26 @@ const QuickGuides: React.FC = () => {
         };
 
         window.addEventListener('aiclinic:restore-guia', restoreSavedGuide);
-        return () => window.removeEventListener('aiclinic:restore-guia', restoreSavedGuide);
+
+        const checkPendingGuide = () => {
+            try {
+                const pending = sessionStorage.getItem('aiclinic:pending-guia');
+                if (pending) {
+                    sessionStorage.removeItem('aiclinic:pending-guia');
+                    restoreSavedGuide(new CustomEvent('restore', { detail: JSON.parse(pending) }));
+                }
+            } catch (err) {
+                console.warn('Error al restaurar guía pendiente:', err);
+            }
+        };
+
+        checkPendingGuide();
+        window.addEventListener('focus', checkPendingGuide);
+
+        return () => {
+            window.removeEventListener('aiclinic:restore-guia', restoreSavedGuide);
+            window.removeEventListener('focus', checkPendingGuide);
+        };
     }, []);
 
     const handleGenerate = async (forceRefresh = false) => {
