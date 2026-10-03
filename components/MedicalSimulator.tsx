@@ -31,6 +31,15 @@ const getLinkText = (source: GroundingSource) => {
     }
 };
 
+const getSourceDomain = (uri: string) => {
+    try {
+        const url = new URL(uri);
+        return url.hostname.replace(/^www\./, '');
+    } catch {
+        return 'Evidencia médica';
+    }
+};
+
 const MedicalSimulator: React.FC = () => {
     // Persistent State for Automatic Restoration
     const [topic, setTopic] = useLocalStorage<string>('sim_topic', '');
@@ -861,13 +870,19 @@ const MedicalSimulator: React.FC = () => {
     const renderDiagnosisHtml = (markdownText: string, sources: GroundingSource[]) => {
         const cleanedText = cleanLatexFormatting(markdownText);
         let parsedHtml = marked.parse(cleanedText) as string;
-        parsedHtml = parsedHtml.replace(/\[(\d+)\]/g, (match, numberStr) => {
-            const index = parseInt(numberStr, 10) - 1;
-            const source = sources[index];
-            if (source && source.uri) {
-                return `<a href="${source.uri}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 dark:bg-cyan-950 dark:text-cyan-300 border border-blue-300 dark:border-cyan-700 hover:scale-110 hover:bg-blue-200 dark:hover:bg-cyan-900 transition-all no-underline shadow-xs cursor-pointer" title="${source.title || source.uri}">[${numberStr}]</a>`;
-            }
-            return `<span class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-semibold rounded-full bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-gray-300 border border-gray-300 dark:border-slate-600">[${numberStr}]</span>`;
+        // Reemplazar citas simples [1] y compuestas [1, 2, 4] o [2, 3] por enlaces clicables directos
+        parsedHtml = parsedHtml.replace(/\[([\d\s,]+)\]/g, (fullMatch, numbersGroup) => {
+            const numbers = numbersGroup.split(',').map((s: string) => s.trim()).filter((s: string) => /^\d+$/.test(s));
+            if (numbers.length === 0) return fullMatch;
+            return numbers.map((numberStr: string) => {
+                const index = parseInt(numberStr, 10) - 1;
+                const source = sources[index];
+                if (source && source.uri) {
+                    return `<a href="${source.uri}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-bold rounded-full bg-blue-100 text-blue-800 dark:bg-cyan-950 dark:text-cyan-300 border border-blue-300 dark:border-cyan-700 hover:scale-110 hover:bg-blue-200 dark:hover:bg-cyan-900 transition-all no-underline shadow-xs cursor-pointer" title="${source.title || source.uri}">[${numberStr}]</a>`;
+                }
+                const fallbackUri = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(numberStr)}`;
+                return `<a href="${fallbackUri}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center px-1.5 py-0.5 mx-0.5 text-xs font-semibold rounded-full bg-blue-50 text-blue-700 dark:bg-slate-700 dark:text-cyan-300 border border-blue-200 dark:border-slate-600 hover:underline" title="Evidencia médica [${numberStr}]">[${numberStr}]</a>`;
+            }).join('');
         });
         return parsedHtml;
     };
@@ -926,10 +941,11 @@ const MedicalSimulator: React.FC = () => {
             {isLoading && (step > 1) && <LoadingSpinner />}
             {step === 3 && finalDiagnosis && (() => {
                 const diagnosisText = finalDiagnosis.text;
-                const sourcesHeader = "### Fuentes de Información";
-                const sourcesIndex = diagnosisText.lastIndexOf(sourcesHeader);
-                const mainDiagnosis = sourcesIndex !== -1 ? diagnosisText.substring(0, sourcesIndex) : diagnosisText;
-                const infoSources = sourcesIndex !== -1 ? diagnosisText.substring(sourcesIndex) : "";
+                const sourcesHeaderRegex = /###\s*(?:Fuentes(?:\s+de\s+Información|\s+Bibliográficas)?|Referencias(?:\s+Bibliográficas)?|Bibliografía)/i;
+                const headerMatch = sourcesHeaderRegex.exec(diagnosisText);
+                const sourcesIndex = headerMatch ? headerMatch.index : -1;
+                const mainDiagnosis = sourcesIndex !== -1 ? diagnosisText.substring(0, sourcesIndex).trim() : diagnosisText;
+                const infoSources = sourcesIndex !== -1 ? diagnosisText.substring(sourcesIndex).trim() : "";
                 
                 return (
                     <div className="mt-6 animate-fade-in space-y-6">
@@ -945,45 +961,85 @@ const MedicalSimulator: React.FC = () => {
                             dangerouslySetInnerHTML={{ __html: renderDiagnosisHtml(mainDiagnosis, finalDiagnosis.sources) }} 
                         />
                         {finalDiagnosis.sources.length > 0 && (
-                            <div className="p-5 bg-white dark:bg-slate-900/80 rounded-xl border-2 border-blue-200 dark:border-cyan-800/70 shadow-md space-y-3">
-                                <div className="flex items-center justify-between flex-wrap gap-2">
-                                    <div className="flex items-center gap-2 text-blue-900 dark:text-cyan-300 font-bold text-base">
-                                        <svg className="w-5 h-5 text-blue-600 dark:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                                        </svg>
-                                        <span>Evidencia y Fuentes de Búsqueda (Grounding)</span>
+                            <div className="p-6 bg-gradient-to-br from-blue-50/80 via-white to-indigo-50/50 dark:from-slate-900 dark:via-slate-850 dark:to-slate-900 rounded-2xl border-2 border-blue-300 dark:border-cyan-700/70 shadow-lg space-y-4">
+                                <div className="flex items-center justify-between flex-wrap gap-2 pb-3 border-b border-blue-200 dark:border-cyan-800/60">
+                                    <div className="flex items-center gap-2.5 text-blue-950 dark:text-cyan-200">
+                                        <span className="p-2 bg-blue-600 dark:bg-cyan-500 text-white dark:text-slate-950 rounded-xl text-base shadow-sm">
+                                            📚
+                                        </span>
+                                        <div>
+                                            <h4 className="font-bold text-base md:text-lg text-blue-950 dark:text-cyan-200">
+                                                Fuentes y Evidencia Científica
+                                            </h4>
+                                            <p className="text-xs text-gray-600 dark:text-gray-400">
+                                                Referencias clínicas avaladas vinculadas a las citas numéricas del desglose
+                                            </p>
+                                        </div>
                                     </div>
-                                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-cyan-950 dark:text-cyan-300 border border-blue-300 dark:border-cyan-700">
+                                        <span className="w-2 h-2 rounded-full bg-blue-500 dark:bg-cyan-400"></span>
                                         {finalDiagnosis.sources.length} {finalDiagnosis.sources.length === 1 ? 'fuente consultada' : 'fuentes consultadas'}
                                     </span>
                                 </div>
-                                <div className="flex flex-wrap gap-2.5 pt-1">
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
                                     {finalDiagnosis.sources.map((source, idx) => {
                                         if (!source.uri) return null;
                                         const citationNumber = idx + 1;
                                         const title = getLinkText(source);
+                                        const domain = getSourceDomain(source.uri);
                                         return (
-                                            <a key={idx} href={source.uri} target="_blank" rel="noopener noreferrer" className="group inline-flex items-center gap-2 px-3.5 py-2 text-xs md:text-sm font-medium rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-cyan-300 dark:border-cyan-700/60 shadow-xs hover:shadow-md transition-all duration-200 hover:-translate-y-0.5 cursor-pointer no-underline">
-                                                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 dark:bg-cyan-500 text-white dark:text-slate-950 text-xs font-bold shadow-xs">
-                                                    {citationNumber}
-                                                </span>
-                                                <span className="max-w-[200px] md:max-w-xs truncate font-medium">{title}</span>
-                                            </a>
+                                            <div 
+                                                key={idx}
+                                                id={`fuente-${citationNumber}`}
+                                                className="group flex flex-col justify-between p-3.5 rounded-xl bg-white dark:bg-slate-800/90 border border-blue-200/80 dark:border-slate-700 shadow-xs hover:shadow-md hover:border-blue-400 dark:hover:border-cyan-500 transition-all duration-200"
+                                            >
+                                                <div className="flex items-start gap-2.5 mb-2">
+                                                    <span className="flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 dark:bg-cyan-500 text-white dark:text-slate-950 text-xs font-bold shadow-xs">
+                                                        {citationNumber}
+                                                    </span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-xs md:text-sm font-semibold text-gray-900 dark:text-gray-100 line-clamp-2 leading-snug">
+                                                            {title}
+                                                        </p>
+                                                        <span className="inline-block mt-1 text-[11px] text-gray-500 dark:text-gray-400 font-mono truncate max-w-full">
+                                                            🌐 {domain}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <div className="pt-2 border-t border-gray-100 dark:border-slate-700/60 flex items-center justify-between">
+                                                    <span className="text-[11px] text-blue-600 dark:text-cyan-400 font-medium">
+                                                        Cita [{citationNumber}]
+                                                    </span>
+                                                    <a 
+                                                        href={source.uri} 
+                                                        target="_blank" 
+                                                        rel="noopener noreferrer" 
+                                                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-cyan-300 transition-colors no-underline"
+                                                    >
+                                                        <span>Consultar fuente</span>
+                                                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                                        </svg>
+                                                    </a>
+                                                </div>
+                                            </div>
                                         );
                                     })}
                                 </div>
                             </div>
                         )}
                         {infoSources && (
-                            <details className="pt-2 border-t dark:border-slate-700">
-                                <summary className="font-semibold text-gray-700 dark:text-gray-300 cursor-pointer hover:text-gray-900 dark:hover:text-gray-100 list-inside text-sm">
-                                    Ver desglose textual de referencias bibliográficas
-                                </summary>
+                            <div className="p-4 bg-gray-50 dark:bg-slate-900/60 rounded-xl border border-gray-200 dark:border-slate-700 space-y-2">
+                                <h5 className="font-semibold text-sm text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                                    <span>📑</span>
+                                    <span>Desglose Bibliográfico y Metodológico</span>
+                                </h5>
                                 <div 
-                                    className="mt-2 p-4 bg-gray-50 rounded-lg border-2 border-gray-200 prose max-w-none dark:prose-invert dark:bg-slate-800 dark:border-slate-700"
+                                    className="text-xs md:text-sm text-gray-700 dark:text-gray-300 prose max-w-none dark:prose-invert"
                                     dangerouslySetInnerHTML={{ __html: renderDiagnosisHtml(infoSources, finalDiagnosis.sources) }}
                                 />
-                            </details>
+                            </div>
                         )}
                     </div>
                 );

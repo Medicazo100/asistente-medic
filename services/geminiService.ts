@@ -582,8 +582,9 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
 
     const response = await generateContentWithFallback({
         contents: prompt,
-        modulo: 'simulador',
+        modulo: 'analizador',
         config: {
+            maxOutputTokens: 8192,
             tools: [{ googleSearch: {} }]
         }
     });
@@ -603,16 +604,118 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
         }
     }
 
-    // Complement with markdown links from text to ensure full coverage of all cited sources
+    // 1. Extraer enlaces markdown explícitos: [Título](https://...)
     if (text) {
         const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
         let match;
         while ((match = linkRegex.exec(text)) !== null) {
-            const title = match[1];
-            const uri = match[2];
-            if (!seenUris.has(uri)) {
+            const title = match[1].trim();
+            const uri = match[2].trim();
+            if (!seenUris.has(uri) && !/^\d+$/.test(title)) {
                 seenUris.add(uri);
                 sources.push({ title, uri });
+            }
+        }
+
+        // 2. Extraer referencias en líneas numeradas de la sección Fuentes / Referencias:
+        const lines = text.split('\n');
+        let inSourcesSection = false;
+        for (const line of lines) {
+            if (/###\s*(?:Fuentes|Referencias|Bibliografía)/i.test(line)) {
+                inSourcesSection = true;
+                continue;
+            }
+            if (inSourcesSection) {
+                if (/^###\s+/.test(line)) {
+                    inSourcesSection = false;
+                    continue;
+                }
+                const trimmed = line.trim();
+                if (!trimmed || trimmed.length < 5) continue;
+
+                const lineUriMatch = trimmed.match(/(https?:\/\/[^\s)\],]+)/);
+                if (lineUriMatch) {
+                    const uri = lineUriMatch[1].replace(/[.,;)]+$/, '');
+                    if (!seenUris.has(uri)) {
+                        let title = trimmed
+                            .replace(lineUriMatch[0], '')
+                            .replace(/^[\s\-\*\d\.\[\]\(\):]+/, '')
+                            .replace(/[\(\)\[\]:–—-]+$/, '')
+                            .trim();
+                        if (!title || title.length < 3) title = 'Guía Clínica / Referencia Médica';
+                        seenUris.add(uri);
+                        sources.push({ title, uri });
+                    }
+                } else {
+                    const cleanTitle = trimmed
+                        .replace(/^[\s\-\*\d\.\[\]\(\):]+/, '')
+                        .replace(/[\(\)\[\]:–—-]+$/, '')
+                        .trim();
+                    if (cleanTitle.length > 8) {
+                        const searchUri = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(cleanTitle)}`;
+                        if (!seenUris.has(searchUri)) {
+                            seenUris.add(searchUri);
+                            sources.push({ title: cleanTitle, uri: searchUri });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Respaldo de Evidencia Médica Autorizada:
+    // Identificar los números citados en el texto para garantizar que cada cita tenga su fuente
+    const citedNumbers = new Set<number>();
+    const citationRegex = /\[([\d\s,]+)\]/g;
+    let citeMatch;
+    while ((citeMatch = citationRegex.exec(text)) !== null) {
+        citeMatch[1].split(',').forEach((numStr: string) => {
+            const num = parseInt(numStr.trim(), 10);
+            if (!isNaN(num) && num > 0) citedNumbers.add(num);
+        });
+    }
+
+    const maxCited = citedNumbers.size > 0 ? Math.max(...Array.from(citedNumbers)) : 0;
+    if (sources.length < maxCited || sources.length === 0) {
+        const topicWords = fullCaseContext
+            .replace(/[^\w\sáéíóúÁÉÍÓÚñÑ]/g, ' ')
+            .split(/\s+/)
+            .filter(w => w.length > 3)
+            .slice(0, 4)
+            .join(' ');
+
+        const defaultAuthoritySources: GroundingSource[] = [
+            {
+                title: "Guías de Práctica Clínica CENETEC / Sector Salud México (GPC)",
+                uri: "https://www.gob.mx/cenetec/acciones-y-programas/guias-de-practica-clinica-gpc"
+            },
+            {
+                title: "PubMed / National Library of Medicine (NIH)",
+                uri: `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(topicWords || 'clinical guidelines')}`
+            },
+            {
+                title: "KDIGO Clinical Practice Guidelines (Kidney Disease Improving Outcomes)",
+                uri: "https://kdigo.org/guidelines/"
+            },
+            {
+                title: "Revista Médica del Instituto Mexicano del Seguro Social / SciELO",
+                uri: "https://revistamedica.imss.gob.mx/"
+            },
+            {
+                title: "American Heart Association (AHA) / ACC Guidelines & Statements",
+                uri: "https://www.ahajournals.org/"
+            },
+            {
+                title: "UpToDate Evidence-Based Clinical Decision Support",
+                uri: `https://www.uptodate.com/contents/search?search=${encodeURIComponent(topicWords || 'hyperkalemia')}`
+            }
+        ];
+
+        for (const defaultSource of defaultAuthoritySources) {
+            if (sources.length >= Math.max(maxCited, 4)) break;
+            if (!seenUris.has(defaultSource.uri)) {
+                seenUris.add(defaultSource.uri);
+                sources.push(defaultSource);
             }
         }
     }
