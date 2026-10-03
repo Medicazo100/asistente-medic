@@ -33,7 +33,74 @@ export function getAi(modulo?: ModuloClinico | string): GoogleGenAI {
     return obtenerAiClientePorModulo(modulo);
 }
 
-// Helper function for robust JSON parsing
+/**
+ * Intenta reparar y parsear JSON truncado o dañado devuelto por el modelo (cadenas no terminadas, llaves abiertas).
+ */
+function repairAndParseJson(raw: string): any {
+    let s = raw.trim();
+    if (s.startsWith('```')) {
+        s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+    }
+    const firstBrace = s.indexOf('{');
+    const firstBracket = s.indexOf('[');
+    let startIdx = 0;
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+        startIdx = firstBrace;
+    } else if (firstBracket !== -1) {
+        startIdx = firstBracket;
+    }
+    s = s.slice(startIdx);
+
+    let inString = false;
+    let isEscaped = false;
+    const stack: string[] = [];
+
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (isEscaped) {
+            isEscaped = false;
+            continue;
+        }
+        if (ch === '\\') {
+            isEscaped = true;
+            continue;
+        }
+        if (ch === '"') {
+            inString = !inString;
+            continue;
+        }
+        if (!inString) {
+            if (ch === '{' || ch === '[') {
+                stack.push(ch);
+            } else if (ch === '}') {
+                if (stack.length > 0 && stack[stack.length - 1] === '{') stack.pop();
+            } else if (ch === ']') {
+                if (stack.length > 0 && stack[stack.length - 1] === '[') stack.pop();
+            }
+        }
+    }
+
+    let repaired = s;
+    if (inString) {
+        repaired += '"';
+    }
+
+    // Limpiar claves incompletas o comas huérfanas al final
+    repaired = repaired.replace(/,\s*"[^"]*"\s*:\s*$/, '');
+    repaired = repaired.replace(/,\s*"[^"]*"$/, '');
+    repaired = repaired.replace(/,\s*$/, '');
+
+    // Cerrar bloques abiertos
+    while (stack.length > 0) {
+        const open = stack.pop();
+        if (open === '{') repaired += '}';
+        else if (open === '[') repaired += ']';
+    }
+
+    return JSON.parse(repaired);
+}
+
+// Helper function for robust JSON parsing with self-healing fallback
 function safeJsonParse(jsonString: string): any {
     try {
         let trimmedString = jsonString.trim();
@@ -46,13 +113,19 @@ function safeJsonParse(jsonString: string): any {
         }
         return JSON.parse(trimmedString);
     } catch (e: any) {
-        console.error("Failed to parse JSON response:", e.message);
-        console.error("Raw API response text:", jsonString);
-        throw new Error(`Failed to parse the response from the AI model. Details: ${e.message}`);
+        try {
+            console.warn("[AICLINIC] Parseo JSON inicial falló, aplicando autoreparación de estructura truncada...");
+            return repairAndParseJson(jsonString);
+        } catch (repairErr: any) {
+            console.error("Failed to parse JSON response:", e.message);
+            console.error("Raw API response text:", jsonString);
+            throw new Error(`Failed to parse the response from the AI model. Details: ${e.message}`);
+        }
     }
 }
 
 const TEXT_MODELS = [
+    'gemini-3.8-flash',
     'gemini-3.7-flash',
     'gemini-2.5-flash',
     'gemini-3-flash-preview',
@@ -168,6 +241,7 @@ export async function generateClinicalCase(topic: string, difficulty: string): P
         contents: prompt,
         modulo: 'simulador',
         config: {
+            maxOutputTokens: 4096,
             responseMimeType: "application/json",
             responseSchema: {
                 type: Type.OBJECT,
@@ -214,7 +288,7 @@ Padecimiento: ${clinicalCase.historyOfPresentIllness}
 Signos Vitales: ${vitalSignsStr}
 Examen Físico: ${clinicalCase.physicalExam}`;
 
-  const prompt = `Simulador dual para internos de pregrado: PACIENTE real y TUTOR MÉDICO docente.
+  const prompt = `Simulador clínico dual de alta fidelidad para formación de Médicos Internos de Pregrado (MIP):
 
 CASO CLÍNICO DE REFERENCIA (ESTRICTAMENTE CONFIDENCIAL):
 ${caseSummary}
@@ -226,10 +300,23 @@ PREGUNTA ACTUAL DEL INTERNO:
 "${userQuestion}"
 
 ---
-REGLAS OBLIGATORIAS:
-1. PROHIBICIÓN ABSOLUTA DE REVELAR DIAGNÓSTICO: Jamás nombres la patología, diagnóstico definitivo ni sospecha directa.
-2. PACIENTE: Responde con lenguaje natural, coloquial y subjetivo según tu cuadro clínico. Si el interno intenta adivinar el diagnóstico directamente, muestra confusión: "No lo sé doctor, solo sé lo que siento...".
-3. TUTOR: Proporciona retroalimentación ultra concisa y formativa (máximo 2 a 3 oraciones). Evalúa la pertinencia semiológica de la pregunta y sugiere áreas semiológicas clave que convenga indagar (ej. semiología ALICIA, antecedentes, desencadenantes).
+INSTRUCCIONES DE ACTUACIÓN:
+
+1. 👤 PACIENTE REAL:
+- Responde en primera persona, con lenguaje natural, humano, coloquial y realista según tu perfil (ej. "Ay doctorcito", "mire usted", "fíjese que...").
+- Refleja emociones acordes al trato: si el médico pregunta con empatía y calidez, colaboras con alivio; si el médico suena regañón, frío o impaciente, te muestras tímido, apenado o confundido ("Disculpe doctorcito, la dejé en casa, no me regañe...").
+- Describe síntomas con sensaciones y analogías cotidianas (nunca con jerga médica técnica como "parálisis flácida" o "hipopotasemia").
+- PROHIBICIÓN ABSOLUTA: Jamás reveles el diagnóstico médico definitivo ni nombres enfermedades ("No sé doctor, solo sé lo que siento").
+
+2. 👨‍⚕️ TUTOR CLÍNICO DOCENTE (Médico Adscrito y Mentor de Enseñanza):
+- Personalidad: Eres un Médico Adscrito de Medicina Interna/Urgencias reconocido por tu carisma pedagógico, empatía, buen humor y cercanía con los internos. Trata al interno con estima y camaradería ("¡Bien pensado, doc!", "¡Buen instinto, colega!", "¡Ojo clínico aquí!").
+- Tono: Profesional, sumamente amigable, didáctico y motivador.
+- Toque de humor amigable y tacto en buen plan: Si el interno formula preguntas toscas, impacientes o que rompen el rapport (como regañar al paciente o exigirle frascos que no trae), corrígelo con calidez, tacto y alguna bromilla simpática de guardia (ej. "¡Tranqui doc, no le apliques el tercer grado a la abuelita jaja!", "¡Cuidado que se nos espanta el paciente antes del electro!", "Respira hondo doc, ni Sherlock Holmes era tan exigente con las etiquetas jaja").
+- Guía Activa de la Anamnesis:
+  * Reconoce el valor de lo que preguntó.
+  * Si hubo falla de empatía o técnica, enseña cómo reformular con amabilidad y obtener la información indirectamente.
+  * Sugiere la siguiente pista semiológica clave a interrogar (ej. semiología cronológica de síntomas, progresión ascendente/descendente, diuresis, antecedentes tóxicos/herbolarios o síntomas de alarma cardiopulmonar/neurológica).
+- Formato conciso: 3 a 4 oraciones fluidas, con emojis formativos (💡, 🩺, 🎯, 😉).
 
 Responde únicamente con un objeto JSON estructurado con 'patientResponse' y 'tutorFeedback'.`;
 
@@ -271,7 +358,11 @@ export async function getSuggestedStudies(clinicalCase: ClinicalCase): Promise<{
     return safeJsonParse(response.text || '');
 }
 
-export async function generateStudyResults(fullCaseContext: string, requestedStudies: { labs: string[], imaging: string[] }): Promise<{ labs: LabResult[], imaging: ImagingResult[] }> {
+export async function generateStudyResults(
+    fullCaseContext: string, 
+    requestedStudies: { labs: string[], imaging: string[] },
+    directCatalog?: boolean
+): Promise<{ labs: LabResult[], imaging: ImagingResult[] }> {
     if ((!requestedStudies.labs || requestedStudies.labs.length === 0) && (!requestedStudies.imaging || requestedStudies.imaging.length === 0)) {
         return { labs: [], imaging: [] };
     }
@@ -331,13 +422,22 @@ export async function generateStudyResults(fullCaseContext: string, requestedStu
     if (parsed.imaging && Array.isArray(parsed.imaging)) {
         parsed.imaging = await Promise.all(parsed.imaging.map(async (img: any) => ({
             ...img,
-            imageUrl: img.imageUrl || await generateImage(img.study, img.findings)
+            imageUrl: img.imageUrl || await generateImage(img.study, img.findings, directCatalog)
         })));
     }
     return parsed;
 }
 
-export async function generateImage(basePrompt: string, findings?: string): Promise<string> {
+export async function generateImage(basePrompt: string, findings?: string, directCatalog?: boolean): Promise<string> {
+    const isDirect = directCatalog !== undefined
+        ? directCatalog
+        : (typeof localStorage !== 'undefined' ? localStorage.getItem('aiclinic_use_direct_catalog_images') !== 'false' : true);
+
+    // Si el usuario activó la opción de catálogo web directo, entrega inmediata sin latencia ni cuota
+    if (isDirect) {
+        return getInternetMedicalImageUrl(basePrompt, findings);
+    }
+
     const normPrompt = basePrompt.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     const modalityDesc = (/\b(ultra\w*|ecograf\w*|ecocardio\w*|usg|doppler)\b/.test(normPrompt) || normPrompt.startsWith('eco'))
         ? 'un estudio de ultrasonido / ecografía diagnóstica'
@@ -351,64 +451,96 @@ export async function generateImage(basePrompt: string, findings?: string): Prom
         ? `Genera una imagen médica diagnóstica correspondiente estrictamente a ${modalityDesc} de: ${basePrompt}. La imagen DEBE mostrar de forma congruente los siguientes hallazgos patológicos: ${findings}. Estilo fotorrealista auténtico, escala de grises adecuada a la modalidad médica, anatomía humana correcta, sin texto ni etiquetas. Ideal para educación médica.`
         : `Genera una imagen médica diagnóstica fidedigna correspondiente estrictamente a ${modalityDesc} de: "${basePrompt}". Sin texto, etiquetas ni artefactos.`;
 
-    // 1. Intentar primero con gemini-2.5-flash-image con failover en el pool del simulador
-    try {
-        const isChest = /t[oó]rax|chest|pulmon/i.test(normPrompt) && 
-                        !/\b(tac|tc|tomograf\w*|ultra\w*|ecograf\w*|ecocardio\w*|usg|doppler|resonanc\w*|rmn?)\b/i.test(normPrompt) &&
-                        !normPrompt.startsWith("eco");
+    // 1. Intentar prioritariamente con Imagen 3 Fast (imagen-3.0-fast-generate-001) para máxima rapidez y fluidez
+    const isChest = /t[oó]rax|chest|pulmon/i.test(normPrompt) && 
+                    !/\b(tac|tc|tomograf\w*|ultra\w*|ecograf\w*|ecocardio\w*|usg|doppler|resonanc\w*|rmn?)\b/i.test(normPrompt) &&
+                    !normPrompt.startsWith("eco");
 
-        const response = await llamarGeminiConFailover(async (ai) => {
-            return await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: {
-                    parts: [{ text: fullPrompt }]
-                },
+    try {
+        const imgResponse = await llamarGeminiConFailover(async (ai) => {
+            return await ai.models.generateImages({
+                model: 'imagen-3.0-fast-generate-001',
+                prompt: fullPrompt,
                 config: {
-                    imageConfig: {
-                        aspectRatio: isChest ? "3:4" : "1:1"
-                    }
-                },
+                    numberOfImages: 1,
+                    aspectRatio: isChest ? "3:4" : "1:1",
+                    outputMimeType: 'image/jpeg'
+                }
             });
         }, 'simulador');
 
-        for (const part of response.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData) {
-                return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-            }
+        const imageBytes = imgResponse?.generatedImages?.[0]?.image?.imageBytes;
+        if (imageBytes) {
+            return `data:image/jpeg;base64,${imageBytes}`;
         }
-    } catch (err: any) {
-        console.warn("gemini-2.5-flash-image no disponible en el pool del simulador. Integrando imagen médica de internet correspondiente al informe radiológico:", err?.message || err);
+    } catch (errFast: any) {
+        console.warn("[AICLINIC] imagen-3.0-fast-generate-001 no disponible o sin cuota en este proyecto. Probando modelos multimodales:", errFast?.message || errFast);
     }
 
-    // 2. Solo después de que no se pueda generar por gemini-2.5-flash-image por falta de cuota:
-    // Integrar imagen de internet acorde o lo más parecido al informe radiológico
+    // 2. Intentar con modelos de imagen multimodales nativos (gemini-3.1-flash-image, gemini-2.5-flash-image)
+    const flashImageModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'];
+    for (const flashModel of flashImageModels) {
+        try {
+            const response = await llamarGeminiConFailover(async (ai) => {
+                return await ai.models.generateContent({
+                    model: flashModel,
+                    contents: {
+                        parts: [{ text: fullPrompt }]
+                    },
+                    config: {
+                        imageConfig: {
+                            aspectRatio: isChest ? "3:4" : "1:1"
+                        }
+                    },
+                });
+            }, 'simulador');
+
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData) {
+                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                }
+            }
+        } catch (err: any) {
+            console.warn(`[AICLINIC] ${flashModel} no disponible en el pool:`, err?.message || err);
+        }
+    }
+
+    // 3. Fallback inteligente e instantáneo: catálogo de imágenes médicas de internet fidedignas
+    console.info("[AICLINIC] Integrando imagen médica fidedigna del catálogo clínico correspondiente al informe radiológico.");
     return getInternetMedicalImageUrl(basePrompt, findings);
 }
 
 
 export async function editImage(prompt: string, base64ImageData: string, mimeType: string): Promise<string> {
-    const response = await llamarGeminiConFailover(async (ai) => {
-        return await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [
-                    {
-                        inlineData: {
-                            data: base64ImageData,
-                            mimeType: mimeType,
-                        },
+    const editModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image'];
+    for (const model of editModels) {
+        try {
+            const response = await llamarGeminiConFailover(async (ai) => {
+                return await ai.models.generateContent({
+                    model: model,
+                    contents: {
+                        parts: [
+                            {
+                                inlineData: {
+                                    data: base64ImageData,
+                                    mimeType: mimeType,
+                                },
+                            },
+                            {
+                                text: prompt,
+                            },
+                        ],
                     },
-                    {
-                        text: prompt,
-                    },
-                ],
-            },
-        });
-    }, 'simulador');
+                });
+            }, 'simulador');
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-        if (part.inlineData) {
-            return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+            for (const part of response.candidates?.[0]?.content?.parts || []) {
+                if (part.inlineData) {
+                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                }
+            }
+        } catch {
+            // Probar siguiente modelo
         }
     }
     throw new Error("No se pudo editar la imagen.");
@@ -1283,7 +1415,7 @@ Prescribir medidas aisladas o incompletas (ej. indicar oxígeno sin monitorizar 
     try {
         const response = await generateContentWithFallback({
             contents: `RESUMEN CLÍNICO DEL CASO:\n${caseContext}\n\n${planSummaryText}`,
-            preferredModel: 'gemini-3.7-flash',
+            preferredModel: 'gemini-3.8-flash',
             modulo: 'simulador',
             config: {
                 systemInstruction: systemPrompt

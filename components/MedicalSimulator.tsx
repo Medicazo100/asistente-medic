@@ -74,6 +74,7 @@ const MedicalSimulator: React.FC = () => {
     const [customImaging, setCustomImaging] = useState('');
     const [loadingStudies, setLoadingStudies] = useState(new Set<string>());
     const [showTherapeuticPlan, setShowTherapeuticPlan] = useLocalStorage<boolean>('sim_showTherapeuticPlan', false);
+    const [useDirectCatalogImages, setUseDirectCatalogImages] = useLocalStorage<boolean>('aiclinic_use_direct_catalog_images', true);
 
 
     const anamnesisEndRef = useRef<HTMLDivElement>(null);
@@ -211,7 +212,7 @@ const MedicalSimulator: React.FC = () => {
                 const studyResults = await generateStudyResults(caseContext, {
                     labs: suggestedLabs,
                     imaging: suggestedImaging
-                });
+                }, useDirectCatalogImages);
 
                 // Fase C: Guardar los resultados generados dinámicamente en los buffers
                 if (studyResults.labs && studyResults.labs.length > 0) {
@@ -414,7 +415,7 @@ const MedicalSimulator: React.FC = () => {
                     setLoadingStudies(prev => new Set(prev).add(study));
                     let imageUrl: string | undefined;
                     try {
-                        imageUrl = await generateImage(bufferedImaging.study, bufferedImaging.findings);
+                        imageUrl = await generateImage(bufferedImaging.study, bufferedImaging.findings, useDirectCatalogImages);
                     } catch (imgErr: any) { 
                         console.warn("Error al generar imagen, usando respaldo de internet:", imgErr);
                         imageUrl = getInternetMedicalImageUrl(bufferedImaging.study, bufferedImaging.findings);
@@ -459,7 +460,7 @@ const MedicalSimulator: React.FC = () => {
                             let imageUrl: string | undefined = found.imageUrl;
                             if (!imageUrl) {
                                 try {
-                                    imageUrl = await generateImage(found.study, found.findings);
+                                    imageUrl = await generateImage(found.study, found.findings, useDirectCatalogImages);
                                 } catch (imgErr: any) {
                                     imageUrl = getInternetMedicalImageUrl(found.study, found.findings);
                                 }
@@ -480,7 +481,7 @@ const MedicalSimulator: React.FC = () => {
             // 3. Si es un estudio personalizado añadido por el usuario, generar bajo demanda
             const request = type === 'labs' ? { labs: [study], imaging: [] } : { labs: [], imaging: [study] };
             const tempContext = `Caso: ${clinicalCase?.historyOfPresentIllness}. Anamnesis: ${anamnesisHistory.map(h => h.patientResponse).join(' ')}`;
-            const resultData = await generateStudyResults(tempContext, request);
+            const resultData = await generateStudyResults(tempContext, request, useDirectCatalogImages);
             
             if (type === 'labs' && resultData.labs && resultData.labs.length > 0) {
                 const labResult = resultData.labs[0];
@@ -491,7 +492,7 @@ const MedicalSimulator: React.FC = () => {
                 let imageUrl: string | undefined = result.imageUrl;
                 if (!imageUrl) {
                     try {
-                        imageUrl = await generateImage(result.study, result.findings);
+                        imageUrl = await generateImage(result.study, result.findings, useDirectCatalogImages);
                     } catch (imgErr: any) { 
                         imageUrl = getInternetMedicalImageUrl(result.study, result.findings);
                     }
@@ -654,7 +655,12 @@ const MedicalSimulator: React.FC = () => {
             {anamnesisHistory.map((turn, index) => <div key={index} className="space-y-2">
                 <p className="bg-blue-100 dark:bg-indigo-900/80 border border-blue-200 dark:border-indigo-700 p-3 rounded-lg text-right ml-12 shadow-sm"><strong>Tú: </strong>{turn.question}</p>
                 <p className="bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 p-3 rounded-lg mr-12 shadow-sm"><strong>Paciente: </strong>{turn.patientResponse}</p>
-                <p className="text-sm bg-green-50 border-l-4 border-green-500 text-green-800 dark:bg-purple-900/30 dark:border-purple-500 dark:text-purple-200 p-3 rounded-r-lg shadow-sm"><strong>Tutor: </strong>{turn.tutorFeedback}</p>
+                <div className="text-sm bg-gradient-to-r from-emerald-50 to-teal-50/70 border-l-4 border-emerald-500 text-slate-800 dark:from-purple-950/40 dark:to-slate-900/60 dark:border-purple-400 dark:text-purple-200 p-3.5 rounded-r-xl shadow-xs space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-emerald-800 dark:text-purple-300 text-xs">
+                        <span>👨‍⚕️ Tutor Clínico Docente</span>
+                    </div>
+                    <p className="leading-relaxed">{turn.tutorFeedback}</p>
+                </div>
             </div>)}
             <div ref={anamnesisEndRef} />
         </div>
@@ -871,7 +877,35 @@ const MedicalSimulator: React.FC = () => {
             return <div className="space-y-4">
                 <p className="text-gray-600 dark:text-gray-400">Ingresa la presentación inicial del paciente para iniciar la simulación.</p>
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Nivel de Dificultad</label>
+                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nivel de Dificultad</label>
+                        <div className="inline-flex items-center gap-1 p-0.5 rounded-full bg-gray-200/80 dark:bg-slate-800 border border-gray-300/80 dark:border-slate-700 shadow-xs">
+                            <button
+                                type="button"
+                                onClick={() => setUseDirectCatalogImages(true)}
+                                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center justify-center ${
+                                    useDirectCatalogImages
+                                        ? 'bg-emerald-600 text-white shadow-xs scale-105'
+                                        : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 opacity-50 hover:opacity-90'
+                                }`}
+                                aria-label="⚡"
+                            >
+                                <span className="text-sm">⚡</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setUseDirectCatalogImages(false)}
+                                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center justify-center ${
+                                    !useDirectCatalogImages
+                                        ? 'bg-indigo-600 text-white shadow-xs scale-105'
+                                        : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 opacity-50 hover:opacity-90'
+                                }`}
+                                aria-label="✨"
+                            >
+                                <span className="text-sm">✨</span>
+                            </button>
+                        </div>
+                    </div>
                     <div className="flex space-x-2 rounded-lg p-1 bg-gray-200 dark:bg-slate-700">
                         {['Interno', 'Adscrito', 'Dr. House'].map(level =>
                             <button key={level} onClick={() => setDifficulty(level)} className={`flex-1 py-2 px-2 text-sm font-semibold rounded-md transition-all ${difficulty === level ? 'bg-white text-blue-700 shadow-sm dark:bg-slate-900 dark:text-purple-300' : 'bg-transparent text-gray-600 hover:bg-gray-300/50 dark:text-gray-300 dark:hover:bg-slate-600'}`}>

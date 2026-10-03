@@ -36,19 +36,25 @@ export type OperacionGemini<T> = (ai: GoogleGenAI, infoLlave: InfoLlave) => Prom
 const clienteCache = new Map<string, GoogleGenAI>();
 
 const LIMITES_TOKENS: Record<string, number> = {
-    simulador: 1200,
-    analizador: 1200,
-    quizzes: 1000,
-    notas: 1000,
+    simulador: 4096,
+    analizador: 6144,
+    quizzes: 3072,
+    notas: 3072,
+    doctoria: 2500,
+    guias: 4096,
 };
 
-const LIMITE_GENERAL_TOKENS = 800;
-const MODELOS_CHAT = ['gemini-3.7-flash', 'gemini-2.5-flash'];
+const LIMITE_GENERAL_TOKENS = 3072;
+const MODELOS_CHAT = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash'];
 const TIMEOUTS_SOLICITUD_MS: Record<string, number> = {
-    simulador: 25000,
-    analizador: 25000,
+    simulador: 45000,
+    analizador: 60000,
+    quizzes: 40000,
+    notas: 35000,
+    guias: 40000,
+    doctoria: 30000,
 };
-const TIMEOUT_GENERAL_MS = 15000;
+const TIMEOUT_GENERAL_MS = 30000;
 
 function esErrorTransitorio(error: any): boolean {
     const mensaje = String(error?.message || error || '').toLowerCase();
@@ -141,18 +147,19 @@ export function obtenerLimiteTokens(modulo?: ModuloClinico | string): number {
     return LIMITES_TOKENS[clave] || LIMITE_GENERAL_TOKENS;
 }
 
-/** Aplica un límite máximo sin permitir que una llamada lo eleve. */
+/** Aplica un presupuesto seguro de tokens y timeouts con holgura para generación clínica estructurada. */
 export function aplicarLimiteTokens(config: any = {}, modulo?: ModuloClinico | string): any {
     const limite = obtenerLimiteTokens(modulo);
     const solicitado = Number(config.maxOutputTokens);
+    // Si la llamada solicita un valor específico, respetarlo con tope de seguridad de 8192 tokens
     const maxOutputTokens = Number.isFinite(solicitado) && solicitado > 0
-        ? Math.min(solicitado, limite)
+        ? Math.min(Math.max(solicitado, limite), 8192)
         : limite;
 
     const timeoutBase = TIMEOUTS_SOLICITUD_MS[(modulo || '').toLowerCase().trim()] || TIMEOUT_GENERAL_MS;
     const timeoutSolicitado = Number(config.httpOptions?.timeout);
     const timeout = Number.isFinite(timeoutSolicitado) && timeoutSolicitado > 0
-        ? Math.min(timeoutSolicitado, timeoutBase)
+        ? Math.max(timeoutSolicitado, timeoutBase)
         : timeoutBase;
 
     return {
