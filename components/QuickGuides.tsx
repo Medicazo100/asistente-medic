@@ -145,12 +145,15 @@ const QuickGuides: React.FC = () => {
             Object.assign(guidePrintRef.current.style, {
                 backgroundColor: '#ffffff',
                 color: '#000000',
-                width: '760px',
-                maxWidth: '760px',
-                minWidth: '760px',
+                width: '680px',
+                maxWidth: '680px',
+                minWidth: '680px',
                 margin: '0 auto',
-                padding: '20px',
+                padding: '12px 16px',
                 boxSizing: 'border-box',
+                border: 'none',
+                boxShadow: 'none',
+                borderRadius: '0px',
                 fontSize: '12px',
                 lineHeight: '1.45',
             });
@@ -179,7 +182,7 @@ const QuickGuides: React.FC = () => {
             const timestamp = new Date().toISOString().split('T')[0];
 
             const opt = {
-                margin: [8, 8, 8, 8],
+                margin: [10, 10, 10, 10], // 10mm homogéneo en los 4 lados para centrado perfecto
                 filename: `Guia_Rapida_${cleanTopic}_${timestamp}.pdf`,
                 image: { type: 'jpeg', quality: 0.98 },
                 html2canvas: {
@@ -187,6 +190,7 @@ const QuickGuides: React.FC = () => {
                     useCORS: true,
                     letterRendering: true,
                     scrollY: 0,
+                    scrollX: 0,
                 },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
                 pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
