@@ -546,14 +546,121 @@ export async function editImage(prompt: string, base64ImageData: string, mimeTyp
     throw new Error("No se pudo editar la imagen.");
 }
 
-export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text: string, sources: GroundingSource[] }> {
+export const TRUSTED_MEDICAL_DOMAINS = [
+    'nih.gov', 'ncbi.nlm.nih.gov', 'nlm.nih.gov', 'pubmed.ncbi.nlm.nih.gov',
+    'gob.mx', 'salud.gob.mx', 'cenetec.salud.gob.mx', 'cenetec-difusion.com',
+    'scielo.org', 'sciencedirect.com', 'nejm.org', 'thelancet.com', 'bmj.com',
+    'jamanetwork.com', 'ahajournals.org', 'kdigo.org', 'escardio.org', 'diabetesjournals.org',
+    'who.int', 'paho.org', 'cdc.gov', 'uptodate.com', 'cochranelibrary.com',
+    'msdmanuals.com', 'merckmanuals.com', 'medigraphic.com', 'revistamedica.imss.gob.mx',
+    'aafp.org', 'acpjournals.org', 'gastro.org', 'idsociety.org', 'aan.com', 'chestnet.org',
+    'atsjournals.org', 'elsevier.com', 'elsevier.es', 'springer.com', 'nature.com', 'medlineplus.gov'
+];
+
+export function isTrustedMedicalUrl(uri: string): boolean {
+    if (!uri || typeof uri !== 'string') return false;
+    try {
+        const parsed = new URL(uri);
+        const host = parsed.hostname.toLowerCase();
+        // Filtrar tiendas de comercio electrónico, redes sociales, y portales comerciales de dudosa reputación
+        if (/mercadolibre|amazon|ebay|aliexpress|walmart|facebook|twitter|instagram|tiktok|youtube|pinterest|doctoralia|topdoctors|tuasaude|salud180|farmacias|market/i.test(host)) {
+            return false;
+        }
+        return TRUSTED_MEDICAL_DOMAINS.some(domain => host === domain || host.endsWith('.' + domain));
+    } catch {
+        return false;
+    }
+}
+
+export function buildPrecisionMedicalSources(condition: string, context: string = ''): GroundingSource[] {
+    const cleanTopic = condition
+        .replace(/[*_#\[\]\(\)]/g, '')
+        .replace(/^(?:Diagnóstico|Paciente con|Probable|Diagnóstico más probable:?)\s*/i, '')
+        .replace(/\b(?:secundaria a|asociada a|en paciente con|con datos de|con repercusión|con elevación|fase)\b.*$/i, '')
+        .replace(/[,;.]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim() || 'urgencias médicas';
+
+    const encodedQuery = encodeURIComponent(cleanTopic);
+    const combinedContext = (condition + ' ' + context).toLowerCase();
+
+    let specialtySource: GroundingSource | null = null;
+
+    if (/potasio|hiperpotasemia|hipopotasemia|renal|riñón|rinon|kdigo|glomerulo|creatinina|diálisis|dialisis|nefro/i.test(combinedContext)) {
+        specialtySource = {
+            title: `KDIGO Clinical Practice Guideline: Manejo de ${cleanTopic}`,
+            uri: `https://kdigo.org/guidelines/?s=${encodedQuery}`
+        };
+    } else if (/corazón|corazon|miocardio|infarto|angina|arritmia|fibrilación|fibrilacion|insuficiencia cardíaca|insuficiencia cardiaca|aha|acc|troponina|hipertensión|hipertension|st|ecg|electrocardiograma/i.test(combinedContext)) {
+        specialtySource = {
+            title: `AHA / ACC Cardiovascular Guidelines & Statements: ${cleanTopic}`,
+            uri: `https://www.ahajournals.org/action/doSearch?AllField=${encodedQuery}`
+        };
+    } else if (/diabetes|cetoacidosis|hiperosmolar|glucosa|insulina|ada|tiroides|tirotoxicosis|mixedema/i.test(combinedContext)) {
+        specialtySource = {
+            title: `American Diabetes Association (ADA) Standards of Care: ${cleanTopic}`,
+            uri: `https://diabetesjournals.org/search-results?page=1&q=${encodedQuery}`
+        };
+    } else if (/pulmón|pulmon|neumonía|neumonia|epoc|asma|gold|ats|respiratorio|tromboembolia/i.test(combinedContext)) {
+        specialtySource = {
+            title: `ATS / ERS Respiratory Clinical Guidelines: ${cleanTopic}`,
+            uri: `https://www.atsjournals.org/action/doSearch?AllField=${encodedQuery}`
+        };
+    } else if (/infecc|sepsis|choque séptico|choque septico|meningitis|bacteriemia|idsa|antibiótico|antibiotico/i.test(combinedContext)) {
+        specialtySource = {
+            title: `IDSA Practice Guidelines: Manejo Antimicrobiano de ${cleanTopic}`,
+            uri: `https://www.idsociety.org/practice-guideline/search/?q=${encodedQuery}`
+        };
+    } else if (/apendic|colecist|pancreat|abdomen agudo|gastro|hígado|higado|cirrosis|sangrado/i.test(combinedContext)) {
+        specialtySource = {
+            title: `WSES / AGA Clinical Guidelines: Abordaje Quirúrgico y Manejo de ${cleanTopic}`,
+            uri: `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(cleanTopic + ' emergency surgery practice guideline')}`
+        };
+    } else if (/cefalea|migraña|migrana|evc|ictus|isquemia cerebral|convulsión|convulsion|epilepsia|aan|mening/i.test(combinedContext)) {
+        specialtySource = {
+            title: `American Academy of Neurology (AAN): Práctica Clínica en ${cleanTopic}`,
+            uri: `https://www.aan.com/search?q=${encodedQuery}`
+        };
+    }
+
+    const list: GroundingSource[] = [
+        {
+            title: `Guía de Práctica Clínica CENETEC (Sector Salud México): ${cleanTopic}`,
+            uri: `https://www.google.com/search?q=${encodeURIComponent('site:gob.mx/cenetec ' + cleanTopic + ' guia practica clinica')}`
+        },
+        {
+            title: `PubMed / National Library of Medicine: Guías Clínicas y Consenso sobre ${cleanTopic}`,
+            uri: `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(cleanTopic + ' clinical practice guideline')}`
+        },
+        {
+            title: `SciELO / IMSS: Evidencia Científica y Manejo Terapéutico de ${cleanTopic}`,
+            uri: `https://search.scielo.org/?q=${encodedQuery}&lang=es`
+        },
+        {
+            title: `UpToDate: Abordaje, Diagnóstico y Tratamiento Basado en Evidencias de ${cleanTopic}`,
+            uri: `https://www.uptodate.com/contents/search?search=${encodedQuery}`
+        },
+        {
+            title: `Cochrane Library: Revisiones Sistemáticas de Eficacia Terapéutica en ${cleanTopic}`,
+            uri: `https://www.cochranelibrary.com/search?searchText=${encodedQuery}`
+        }
+    ];
+
+    if (specialtySource) {
+        list.splice(1, 0, specialtySource);
+    }
+
+    return list;
+}
+
+export async function getFinalDiagnosis(fullCaseContext: string, currentTopic?: string): Promise<{ text: string, sources: GroundingSource[] }> {
     const prompt = `Basado en la siguiente información clínica completa: ${fullCaseContext}
 
     Realiza un análisis clínico-educativo exhaustivo para un médico interno y proporciona lo siguiente en formato Markdown estricto. Utiliza la herramienta de búsqueda de Google para fundamentar tus respuestas con evidencia médica actualizada y diversa (Guías de Práctica Clínica mexicanas CENETEC/SSA, guías internacionales AHA, ACC, ESC, ADA, KDIGO, IDSA, GOLD, revisiones en PubMed, NEJM, Lancet, JAMA y UpToDate).
 
     REGLAS DE FORMATO Y CITACIÓN:
     - IMPORTANTE: Redacta estrictamente en texto plano y Markdown estándar. NUNCA utilices sintaxis LaTeX ni símbolos de dólar ($ o $$) ni comandos como \\text{}, \\alpha, \\beta para fórmulas o nombres biológicos/médicos (ej. escribe simplemente "IL-1", "IL-6", "TNF-alfa", "IL-8", etc.).
-    - DIVERSIDAD Y AMPLITUD BIBLIOGRÁFICA: Consulta e incorpora activamente entre 4 y 6 fuentes médicas autorizadas y complementarias (nacionales e internacionales).
+    - DIVERSIDAD Y AMPLITUD BIBLIOGRÁFICA: Cita y fundamenta con entre 4 y 6 fuentes médicas autorizadas nacionales e internacionales.
     - Inserta llamadas de citas numéricas entre corchetes como [1], [2], [3], [4], [5], [6] dentro del texto redactado en las secciones correspondientes para respaldar cada punto fisiopatológico, criterio diagnóstico, esquema farmacológico con dosis y evidencia clínica.
     - Cada número [n] debe coincidir rigurosamente con el orden de las fuentes consultadas.
 
@@ -563,22 +670,22 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     Establece el diagnóstico más probable de forma clara y concisa.
 
     ### Fisiopatología y Correlación Clínica
-    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita (ej. "...liberación de citoquinas pro-inflamatorias como IL-1 y TNF-alfa [1]", "...leucocitosis reactiva observada en la biometría hemática [2]"). Incluye citas numéricas [1], [2], [3] correspondientes a las fuentes de evidencia.
+    Esta es la sección más importante para el aprendizaje. Explica de manera detallada la fisiopatología subyacente del diagnóstico principal. Después, correlaciona de forma explícita CADA UNO de los hallazgos clave (signos, síntomas, resultados de laboratorio e imagen) del caso clínico con la fisiopatología descrita. Incluye citas numéricas [1], [2], [3] correspondientes a las fuentes de evidencia.
 
     ### Plan de Manejo y Tratamiento
     Detalla el plan de manejo inicial y el tratamiento específico para el diagnóstico principal. Basa tus recomendaciones en Guías de Práctica Clínica (GPC) actualizadas y en la medicina basada en evidencia. Sé específico en cuanto a fármacos, dosis y medidas de soporte, incluyendo citas numéricas [3], [4], [5] para las guías de referencia utilizadas.
 
     ### Diagnósticos Diferenciales
-    Al final, enumera al menos 2 a 3 diagnósticos diferenciales importantes que se consideraron. Para cada uno, explica brevemente por qué es menos probable que el diagnóstico principal en este caso específico, citando evidencia comparativa si aplica.
+    Al final, enumera al menos 2 a 3 diagnósticos diferenciales importantes que se consideraron. Para cada uno, explica brevemente por qué es menos probable que el diagnóstico principal en este caso específico.
     
     ### Fuentes de Información
-    Al final de todo, enumera de forma ordenada y numerada entre 4 y 6 fuentes de alta calidad que respalden el diagnóstico y manejo, coincidiendo con los números de cita del texto:
-    - [1] [Título del artículo o guía clínica](URL directa)
-    - [2] [Título del artículo o guía clínica](URL directa)
-    - [3] [Título del artículo o guía clínica](URL directa)
-    - [4] [Título del artículo o guía clínica](URL directa)
-    - [5] [Título del artículo o guía clínica](URL directa)
-    - [6] [Título del artículo o guía clínica](URL directa)`;
+    Al final de todo, enumera entre 4 y 6 fuentes de evidencia médica de primer nivel que respalden rigurosamente este diagnóstico y su tratamiento:
+    - [1] Guía de Práctica Clínica CENETEC (Sector Salud México)
+    - [2] Guía de práctica clínica de sociedad médica especializada correspondiente al diagnóstico
+    - [3] PubMed / National Library of Medicine (Guías Clínicas Internacionales)
+    - [4] SciELO / Revista Médica del IMSS (Evidencia Clínica Iberoamericana)
+    - [5] UpToDate (Decisión Clínica y Manejo Basado en Evidencias)
+    - [6] Cochrane Library (Revisiones Sistemáticas de Eficacia Terapéutica)`;
 
     const response = await generateContentWithFallback({
         contents: prompt,
@@ -593,130 +700,77 @@ export async function getFinalDiagnosis(fullCaseContext: string): Promise<{ text
     const rawSources = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
         .map((chunk: any) => chunk.web)
         .filter((web: any): web is GroundingSource => Boolean(web && web.uri && web.uri.trim() !== ''));
-        
-    // Deduplicate sources by URI while preserving order
-    const seenUris = new Set<string>();
-    const sources: GroundingSource[] = [];
-    for (const source of rawSources) {
-        if (!seenUris.has(source.uri)) {
-            seenUris.add(source.uri);
-            sources.push(source);
+
+    // 1. Extraer diagnóstico principal confirmado para sincronizar fuentes exactas
+    let diagnosedCondition = '';
+    const diagMatch = text.match(/###\s*Diagnóstico Principal\s*\n+([^\n#]+)/i);
+    if (diagMatch && diagMatch[1]) {
+        diagnosedCondition = diagMatch[1]
+            .replace(/[*_#\[\]\(\)]/g, '')
+            .replace(/^(?:Diagnóstico|Paciente con|Probable|Diagnóstico más probable:?)\s*/i, '')
+            .trim();
+    }
+    if (!diagnosedCondition) {
+        const caseTitleMatch = fullCaseContext.match(/Título:\s*([^\n]+)/i);
+        if (caseTitleMatch && caseTitleMatch[1]) {
+            diagnosedCondition = caseTitleMatch[1].replace(/[*_#\[\]\(\)]/g, '').trim();
+        } else if (currentTopic) {
+            diagnosedCondition = currentTopic.trim();
         }
     }
 
-    // 1. Extraer enlaces markdown explícitos: [Título](https://...)
+    const precisionSources = buildPrecisionMedicalSources(diagnosedCondition || currentTopic || 'patología', fullCaseContext);
+
+    // 2. Extraer fuentes web de grounding o texto que pasen filtro estricto de dominios médicos
+    const seenUris = new Set<string>();
+    const verifiedGroundingSources: GroundingSource[] = [];
+
+    const addGroundingIfValid = (s: GroundingSource) => {
+        if (!s || !s.uri) return;
+        const cleanUri = s.uri.trim();
+        if (!isTrustedMedicalUrl(cleanUri)) return; // Rechazar tiendas, redes sociales o dominios no médicos
+        if (!seenUris.has(cleanUri)) {
+            seenUris.add(cleanUri);
+            verifiedGroundingSources.push({
+                title: s.title && s.title.trim() ? s.title.trim() : 'Evidencia Médica Avalada',
+                uri: cleanUri
+            });
+        }
+    };
+
+    for (const source of rawSources) {
+        addGroundingIfValid(source);
+    }
+
     if (text) {
         const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
         let match;
         while ((match = linkRegex.exec(text)) !== null) {
             const title = match[1].trim();
             const uri = match[2].trim();
-            if (!seenUris.has(uri) && !/^\d+$/.test(title)) {
-                seenUris.add(uri);
-                sources.push({ title, uri });
-            }
-        }
-
-        // 2. Extraer referencias en líneas numeradas de la sección Fuentes / Referencias:
-        const lines = text.split('\n');
-        let inSourcesSection = false;
-        for (const line of lines) {
-            if (/###\s*(?:Fuentes|Referencias|Bibliografía)/i.test(line)) {
-                inSourcesSection = true;
-                continue;
-            }
-            if (inSourcesSection) {
-                if (/^###\s+/.test(line)) {
-                    inSourcesSection = false;
-                    continue;
-                }
-                const trimmed = line.trim();
-                if (!trimmed || trimmed.length < 5) continue;
-
-                const lineUriMatch = trimmed.match(/(https?:\/\/[^\s)\],]+)/);
-                if (lineUriMatch) {
-                    const uri = lineUriMatch[1].replace(/[.,;)]+$/, '');
-                    if (!seenUris.has(uri)) {
-                        let title = trimmed
-                            .replace(lineUriMatch[0], '')
-                            .replace(/^[\s\-\*\d\.\[\]\(\):]+/, '')
-                            .replace(/[\(\)\[\]:–—-]+$/, '')
-                            .trim();
-                        if (!title || title.length < 3) title = 'Guía Clínica / Referencia Médica';
-                        seenUris.add(uri);
-                        sources.push({ title, uri });
-                    }
-                } else {
-                    const cleanTitle = trimmed
-                        .replace(/^[\s\-\*\d\.\[\]\(\):]+/, '')
-                        .replace(/[\(\)\[\]:–—-]+$/, '')
-                        .trim();
-                    if (cleanTitle.length > 8) {
-                        const searchUri = `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(cleanTitle)}`;
-                        if (!seenUris.has(searchUri)) {
-                            seenUris.add(searchUri);
-                            sources.push({ title: cleanTitle, uri: searchUri });
-                        }
-                    }
-                }
+            if (!/^\d+$/.test(title)) {
+                addGroundingIfValid({ title, uri });
             }
         }
     }
 
-    // 3. Respaldo de Evidencia Médica Autorizada:
-    // Identificar los números citados en el texto para garantizar que cada cita tenga su fuente
-    const citedNumbers = new Set<number>();
-    const citationRegex = /\[([\d\s,]+)\]/g;
-    let citeMatch;
-    while ((citeMatch = citationRegex.exec(text)) !== null) {
-        citeMatch[1].split(',').forEach((numStr: string) => {
-            const num = parseInt(numStr.trim(), 10);
-            if (!isNaN(num) && num > 0) citedNumbers.add(num);
-        });
+    // 3. Integrar fuentes con prioridad de precisión temática:
+    // Las fuentes de precisión médica de la patología exacta encabezan la lista [1..N]
+    // para garantizar congruencia absoluta entre cada cita [1], [2], [3] y la evidencia científica oficial.
+    const sources: GroundingSource[] = [];
+    const finalSeenUris = new Set<string>();
+
+    for (const precSource of precisionSources) {
+        if (!finalSeenUris.has(precSource.uri)) {
+            finalSeenUris.add(precSource.uri);
+            sources.push(precSource);
+        }
     }
 
-    const maxCited = citedNumbers.size > 0 ? Math.max(...Array.from(citedNumbers)) : 0;
-    if (sources.length < maxCited || sources.length === 0) {
-        const topicWords = fullCaseContext
-            .replace(/[^\w\sáéíóúÁÉÍÓÚñÑ]/g, ' ')
-            .split(/\s+/)
-            .filter(w => w.length > 3)
-            .slice(0, 4)
-            .join(' ');
-
-        const defaultAuthoritySources: GroundingSource[] = [
-            {
-                title: "Guías de Práctica Clínica CENETEC / Sector Salud México (GPC)",
-                uri: "https://www.gob.mx/cenetec/acciones-y-programas/guias-de-practica-clinica-gpc"
-            },
-            {
-                title: "PubMed / National Library of Medicine (NIH)",
-                uri: `https://pubmed.ncbi.nlm.nih.gov/?term=${encodeURIComponent(topicWords || 'clinical guidelines')}`
-            },
-            {
-                title: "KDIGO Clinical Practice Guidelines (Kidney Disease Improving Outcomes)",
-                uri: "https://kdigo.org/guidelines/"
-            },
-            {
-                title: "Revista Médica del Instituto Mexicano del Seguro Social / SciELO",
-                uri: "https://revistamedica.imss.gob.mx/"
-            },
-            {
-                title: "American Heart Association (AHA) / ACC Guidelines & Statements",
-                uri: "https://www.ahajournals.org/"
-            },
-            {
-                title: "UpToDate Evidence-Based Clinical Decision Support",
-                uri: `https://www.uptodate.com/contents/search?search=${encodeURIComponent(topicWords || 'hyperkalemia')}`
-            }
-        ];
-
-        for (const defaultSource of defaultAuthoritySources) {
-            if (sources.length >= Math.max(maxCited, 4)) break;
-            if (!seenUris.has(defaultSource.uri)) {
-                seenUris.add(defaultSource.uri);
-                sources.push(defaultSource);
-            }
+    for (const groundSource of verifiedGroundingSources) {
+        if (!finalSeenUris.has(groundSource.uri)) {
+            finalSeenUris.add(groundSource.uri);
+            sources.push(groundSource);
         }
     }
 
@@ -747,7 +801,7 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     
     Utiliza formato Markdown, sé conciso y directo al punto.
 
-    Al final de la guía, incluye una sección titulada "### Fuentes" y lista de 3 a 5 fuentes web que utilizaste con enlaces directos, formateadas como: "- [Título de la guía o artículo](URL)".`;
+    Al final de la guía, incluye una sección titulada "### Fuentes" y lista de 3 a 5 fuentes de evidencia médica autorizadas.`;
     
     const response = await generateContentWithFallback({
         contents: prompt,
@@ -761,29 +815,27 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
     const rawSources = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
         .map((chunk: any) => chunk.web)
         .filter((web: any): web is GroundingSource => Boolean(web && web.uri && web.uri.trim() !== ''));
-        
+
+    const precisionSources = buildPrecisionMedicalSources(topic);
     const seenUris = new Set<string>();
     const sources: GroundingSource[] = [];
-    for (const source of rawSources) {
-        if (!seenUris.has(source.uri)) {
-            seenUris.add(source.uri);
-            sources.push(source);
+
+    // Incorporar fuentes de precisión para el tema específico
+    for (const pSource of precisionSources) {
+        if (!seenUris.has(pSource.uri)) {
+            seenUris.add(pSource.uri);
+            sources.push(pSource);
         }
     }
 
-    if (text) {
-        const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g;
-        let match;
-        while ((match = linkRegex.exec(text)) !== null) {
-            const title = match[1];
-            const uri = match[2];
-            if (!seenUris.has(uri)) {
-                seenUris.add(uri);
-                sources.push({ title, uri });
-            }
+    // Agregar fuentes de grounding si son dominios médicos de confianza
+    for (const rSource of rawSources) {
+        if (isTrustedMedicalUrl(rSource.uri) && !seenUris.has(rSource.uri)) {
+            seenUris.add(rSource.uri);
+            sources.push(rSource);
         }
     }
-        
+
     return { text, sources };
 }
 

@@ -34,7 +34,53 @@ const getLinkText = (source: GroundingSource) => {
 const getSourceDomain = (uri: string) => {
     try {
         const url = new URL(uri);
-        return url.hostname.replace(/^www\./, '');
+        const host = url.hostname.replace(/^www\./, '');
+        if (uri.includes('site:gob.mx/cenetec') || host.includes('cenetec') || host.includes('gob.mx')) {
+            return 'CENETEC / Salud México (GPC)';
+        }
+        if (host.includes('pubmed.ncbi.nlm.nih.gov') || host.includes('ncbi.nlm.nih.gov')) {
+            return 'PubMed / NIH (EE. UU.)';
+        }
+        if (host.includes('scielo.org') || host.includes('imss.gob.mx')) {
+            return 'SciELO / IMSS (Iberoamérica)';
+        }
+        if (host.includes('uptodate.com')) {
+            return 'UpToDate (Decisión Clínica MBE)';
+        }
+        if (host.includes('cochranelibrary.com')) {
+            return 'Cochrane Library (MBE)';
+        }
+        if (host.includes('kdigo.org')) {
+            return 'KDIGO (Nefrología)';
+        }
+        if (host.includes('ahajournals.org') || host.includes('escardio.org')) {
+            return 'AHA / ACC (Cardiología)';
+        }
+        if (host.includes('diabetesjournals.org')) {
+            return 'ADA (Endocrinología/Diabetes)';
+        }
+        if (host.includes('atsjournals.org')) {
+            return 'ATS / ERS (Neumología)';
+        }
+        if (host.includes('idsociety.org')) {
+            return 'IDSA (Infectología)';
+        }
+        if (host.includes('aan.com')) {
+            return 'AAN (Neurología)';
+        }
+        if (host.includes('gastro.org')) {
+            return 'AGA (Gastroenterología)';
+        }
+        if (host.includes('nejm.org')) {
+            return 'New England Journal of Medicine';
+        }
+        if (host.includes('thelancet.com')) {
+            return 'The Lancet';
+        }
+        if (host.includes('jamanetwork.com')) {
+            return 'JAMA Network';
+        }
+        return host;
     } catch {
         return 'Evidencia médica';
     }
@@ -301,7 +347,7 @@ const MedicalSimulator: React.FC = () => {
             setIsPrefetchingDiagnosis(true);
             const promise = (async () => {
                 try {
-                    const diagnosisData = await getFinalDiagnosis(fullContext);
+                    const diagnosisData = await getFinalDiagnosis(fullContext, topic);
                     setPreloadedDiagnosis(diagnosisData);
                     return diagnosisData;
                 } catch (err) {
@@ -562,7 +608,7 @@ const MedicalSimulator: React.FC = () => {
                 try {
                     const fullContext = getFullCaseSummaryForDiagnosis();
                     if (!fullContext) throw new Error('No hay suficiente información.');
-                    const directData = await getFinalDiagnosis(fullContext);
+                    const directData = await getFinalDiagnosis(fullContext, topic);
                     setFinalDiagnosis(directData);
                     setStep(3);
                 } catch (fallbackErr) {
@@ -580,7 +626,7 @@ const MedicalSimulator: React.FC = () => {
         try {
             const fullContext = getFullCaseSummaryForDiagnosis();
             if (!fullContext) { setError('No hay suficiente información.'); setIsLoading(false); return; }
-            const diagnosisData = await getFinalDiagnosis(fullContext);
+            const diagnosisData = await getFinalDiagnosis(fullContext, topic);
             setFinalDiagnosis(diagnosisData); 
             setStep(3);
         } catch(e) { 
