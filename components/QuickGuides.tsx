@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { generateQuickGuide } from '../services/geminiService';
+import { generateQuickGuide, cleanMedicalMarkdown } from '../services/geminiService';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
 import { marked } from 'marked';
@@ -47,7 +47,10 @@ const QuickGuides: React.FC = () => {
             const record = (event as CustomEvent<StudyLibraryRecord<GuideLibraryPayload>>).detail;
             if (!record?.payload?.text) return;
             setTopic(record.topic);
-            setGuide(record.payload);
+            setGuide({
+                ...record.payload,
+                text: cleanMedicalMarkdown(record.payload.text)
+            });
             setIsCached(true);
             setError(null);
             setIsLoading(false);
@@ -290,7 +293,7 @@ const QuickGuides: React.FC = () => {
                             </div>
 
                             <div className="prose max-w-none dark:prose-invert"
-                                dangerouslySetInnerHTML={{ __html: marked.parse(mainGuide) }}
+                                dangerouslySetInnerHTML={{ __html: marked.parse(cleanMedicalMarkdown(mainGuide)) }}
                             />
                             
                             {(infoSources || guide.sources.length > 0) && (
@@ -301,7 +304,7 @@ const QuickGuides: React.FC = () => {
                                     <div className="mt-2 space-y-4">
                                         {infoSources && (
                                             <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 prose max-w-none dark:prose-invert dark:bg-slate-700/50 dark:border-slate-600 break-words text-xs"
-                                                dangerouslySetInnerHTML={{ __html: marked.parse(infoSources) }}
+                                                dangerouslySetInnerHTML={{ __html: marked.parse(cleanMedicalMarkdown(infoSources)) }}
                                             />
                                         )}
                                         {guide.sources.length > 0 && (

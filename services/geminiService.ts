@@ -878,10 +878,50 @@ export async function generateNoteGuide(topic: string): Promise<{ guide: string,
     return safeJsonParse(response.text || '');
 }
 
+/**
+ * Limpia fórmulas matemáticas LaTeX y caracteres distractores ($...$, \ge, \le, \text{})
+ * transformándolos en símbolos médicos y texto clínico limpio legible (≥, ≤, ±, <, >, etc.).
+ */
+export function cleanMedicalMarkdown(text: string): string {
+    if (!text) return '';
+    let s = text;
+    
+    // 1. Reemplazar comandos LaTeX específicos dentro o fuera de fórmulas
+    s = s.replace(/\\+(?:text|mathrm|mathbf)\{([^}]*)\}/g, '$1');
+    s = s.replace(/\\+(?:ge|geq)\b/g, '≥');
+    s = s.replace(/\\+(?:le|leq)\b/g, '≤');
+    s = s.replace(/\\+pm\b/g, '±');
+    s = s.replace(/\\+times\b/g, '×');
+    s = s.replace(/\\+approx\b/g, '≈');
+    s = s.replace(/\\+neq\b/g, '≠');
+    
+    // Superíndices comunes (ej: kg/m^2 -> kg/m²)
+    s = s.replace(/\^\{?2\}?/g, '²');
+    s = s.replace(/\^\{?3\}?/g, '³');
+    
+    // Fracciones simples: \frac{a}{b} -> a/b
+    s = s.replace(/\\+frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2');
+
+    // 2. Limpiar delimitadores de fórmulas matemáticas LaTeX ($...$ o $$...$$)
+    s = s.replace(/\$\$([^$]+)\$\$/g, '$1');
+    s = s.replace(/\$([^$]+)\$/g, '$1');
+
+    // 3. Limpiar barras diagonales o escapes huérfanos antes de símbolos o números
+    s = s.replace(/\\([≥≤±×≈≠<>=])/g, '$1');
+    s = s.replace(/\\([0-9])/g, '$1');
+
+    // 4. Limpiar signos de dólar sueltos junto a comparaciones o números
+    s = s.replace(/\$\s*([<>=≥≤])/g, '$1');
+    s = s.replace(/([<>=≥≤0-9])\s*\$/g, '$1');
+
+    return s;
+}
+
 export async function generateQuickGuide(topic: string): Promise<{ text: string, sources: GroundingSource[] }> {
     const prompt = `Proporciona una guía de referencia rápida sobre el manejo de "${topic}" para médicos internos. Basa tu respuesta en la información más actualizada posible, consultando una amplia variedad de fuentes (entre 3 y 5 fuentes médicas autorizadas), dando **prioridad a las Guías de Práctica Clínica (GPC) de México / CENETEC** y complementando con guías internacionales de primer nivel (ej. AAFP, AHA, ACC, ESC, ADA, KDIGO). 
     
     Utiliza formato Markdown, sé conciso y directo al punto.
+    REGLA DE FORMATO: Escribe en texto plano y Markdown limpio. NO uses sintaxis de LaTeX, NO uses signos de dólar ($) ni barras diagonales de escape o comandos como \\ge, \\le, \\text{}. Escribe directamente los símbolos médicos estándar: ≥, ≤, <, >, ±, %, etc.
 
     Al final de la guía, incluye una sección titulada "### Fuentes" y lista de 3 a 5 fuentes de evidencia médica autorizadas.`;
     
@@ -893,7 +933,7 @@ export async function generateQuickGuide(topic: string): Promise<{ text: string,
         }
     });
 
-    const text = response.text || '';
+    const text = cleanMedicalMarkdown(response.text || '');
     const rawSources = (response.candidates?.[0]?.groundingMetadata?.groundingChunks || [])
         .map((chunk: any) => chunk.web)
         .filter((web: any): web is GroundingSource => Boolean(web && web.uri && web.uri.trim() !== ''));
