@@ -4,6 +4,7 @@ import LoadingSpinner from './ui/LoadingSpinner';
 import { Section } from '../constants';
 import { StudyLibraryKind, StudyLibraryRecord } from '../types';
 import {
+    getSimulationDiagnosis,
     hydrateStudyLibraryFromCloud,
     listRecentStudyRecords,
     markStudyViewed,
@@ -20,12 +21,16 @@ const KIND_LABELS: Record<StudyLibraryKind, string> = {
     doctoria: 'DoctorIA',
     guia: 'Guía clínica',
     simulacion: 'Caso clínico',
+    articulo: 'Artículo analizado',
+    quiz: 'Cuestionario / Quiz',
 };
 
 const KIND_ICONS: Record<StudyLibraryKind, string> = {
     doctoria: '💬',
     guia: '📚',
     simulacion: '🩺',
+    articulo: '📄',
+    quiz: '📝',
 };
 
 const formatDate = (value: string) => new Intl.DateTimeFormat('es-MX', {
@@ -38,11 +43,12 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
     const [filter, setFilter] = useState<Filter>('todos');
     const [query, setQuery] = useState('');
     const [isLoading, setIsLoading] = useState(true);
+    const [revealedDiagnoses, setRevealedDiagnoses] = useState<Record<string, boolean>>({});
 
     const loadRecords = async () => {
         setIsLoading(true);
         await hydrateStudyLibraryFromCloud();
-        setRecords(await listRecentStudyRecords(100));
+        setRecords(await listRecentStudyRecords(50));
         setIsLoading(false);
     };
 
@@ -67,6 +73,12 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
         if (record.kind === 'simulacion') {
             window.dispatchEvent(new CustomEvent('aiclinic:restore-simulation', { detail: record }));
             onSectionChange(Section.Simulator);
+        } else if (record.kind === 'articulo') {
+            window.dispatchEvent(new CustomEvent('aiclinic:restore-articulo', { detail: record }));
+            onSectionChange(Section.ArticleAnalyzer);
+        } else if (record.kind === 'quiz') {
+            window.dispatchEvent(new CustomEvent('aiclinic:restore-quiz', { detail: record }));
+            onSectionChange(Section.Quiz);
         } else if (record.kind === 'doctoria') {
             window.dispatchEvent(new CustomEvent('aiclinic:restore-doctoria', { detail: record }));
             onSectionChange(Section.ChatBot);
@@ -74,13 +86,21 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
             window.dispatchEvent(new CustomEvent('aiclinic:restore-guia', { detail: record }));
             onSectionChange(Section.Guides);
         }
-        setRecords(await listRecentStudyRecords(100));
+        setRecords(await listRecentStudyRecords(50));
     };
 
     const handleToggleFavorite = async (event: React.MouseEvent, record: StudyLibraryRecord) => {
         event.stopPropagation();
         await toggleStudyFavorite(record.id);
-        setRecords(await listRecentStudyRecords(100));
+        setRecords(await listRecentStudyRecords(50));
+    };
+
+    const toggleRevealDiagnosis = (event: React.MouseEvent, recordId: string) => {
+        event.stopPropagation();
+        setRevealedDiagnoses((prev) => ({
+            ...prev,
+            [recordId]: !prev[recordId],
+        }));
     };
 
     return (
@@ -90,7 +110,7 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                     <div>
                         <h2 className="text-2xl font-bold text-blue-800 dark:text-cyan-300">📚 Biblioteca de estudio</h2>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Vistos recientemente, respuestas guardadas y casos listos para reestudiar.
+                            Vistos recientemente, artículos analizados, cuestionarios y casos listos para reestudiar en cualquier dispositivo.
                         </p>
                     </div>
                     <button
@@ -107,7 +127,7 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                         type="search"
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Buscar tema o pregunta guardada..."
+                        placeholder="Buscar tema, caso, artículo o quiz..."
                         className="w-full rounded-lg border-2 border-gray-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
                     />
                     <select
@@ -116,17 +136,19 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                         className="rounded-lg border-2 border-gray-200 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
                         aria-label="Filtrar biblioteca"
                     >
-                        <option value="todos">Vistos recientemente</option>
+                        <option value="todos">Vistos recientemente (hasta 50)</option>
                         <option value="favoritos">Favoritos</option>
-                        <option value="doctoria">DoctorIA</option>
-                        <option value="guia">Guías clínicas</option>
                         <option value="simulacion">Casos clínicos</option>
+                        <option value="articulo">Artículos analizados</option>
+                        <option value="quiz">Quizzes y cuestionarios</option>
+                        <option value="guia">Guías clínicas</option>
+                        <option value="doctoria">DoctorIA</option>
                     </select>
                 </div>
 
                 {isLoading ? <LoadingSpinner /> : visibleRecords.length === 0 ? (
                     <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500 dark:border-slate-600 dark:text-gray-400">
-                        Todavía no hay contenidos guardados. Al completar una respuesta, guía o caso aparecerá aquí.
+                        Todavía no hay contenidos guardados. Al completar una respuesta, artículo, quiz, guía o caso aparecerá aquí disponible para todos los dispositivos.
                     </div>
                 ) : (
                     <div className="space-y-3">
@@ -152,6 +174,40 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-slate-700 dark:text-cyan-300">{KIND_LABELS[record.kind]}</span>
                                         </div>
                                         <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">Visto {formatDate(record.lastViewedAt)} · {record.viewCount} {record.viewCount === 1 ? 'lectura' : 'lecturas'}</p>
+
+                                        {record.kind === 'simulacion' && (() => {
+                                            const diag = getSimulationDiagnosis(record);
+                                            if (!diag) return null;
+                                            const isRevealed = Boolean(revealedDiagnoses[record.id]);
+                                            return (
+                                                <div className="mt-2.5 flex items-center gap-2 pt-2 border-t border-gray-200/70 dark:border-slate-700/60">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => toggleRevealDiagnosis(e, record.id)}
+                                                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border shadow-xs ${
+                                                            isRevealed
+                                                                ? 'bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
+                                                                : 'bg-white hover:bg-gray-100 text-gray-700 border-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-gray-200 dark:border-slate-600'
+                                                        }`}
+                                                        title={isRevealed ? "Ocultar diagnóstico (Modo Desafío Clínico)" : "Presiona el ojo para revelar el diagnóstico de este caso"}
+                                                    >
+                                                        <span className="text-sm">{isRevealed ? '👁️' : '👁️‍🗨️'}</span>
+                                                        <span>{isRevealed ? 'Ocultar diagnóstico' : 'Ver diagnóstico'}</span>
+                                                    </button>
+                                                    <div className="flex-1 min-w-0">
+                                                        {isRevealed ? (
+                                                            <span className="inline-block text-xs font-semibold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800 truncate max-w-full animate-fade-in">
+                                                                Dx: {diag}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-block text-[11px] text-gray-400 dark:text-gray-400 italic select-none">
+                                                                (Presiona el ojo solo si deseas conocer el diagnóstico antes de resolver el caso)
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
                                     </div>
                                     <button
                                         type="button"

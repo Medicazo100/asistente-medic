@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { analyzeMedicalArticle } from '../services/geminiService';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
@@ -6,6 +6,8 @@ import { marked } from 'marked';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
 import useLocalStorage from '../hooks/useLocalStorage';
+import { createArticleRecordId, normalizeStudyTopic, saveStudyRecord } from '../services/studyLibrary';
+import { ArticleLibraryPayload, StudyLibraryRecord } from '../types';
 
 // Configurar el worker de PDF.js.
 // Usamos unpkg como fallback confiable.
@@ -28,6 +30,21 @@ const ArticleAnalyzer: React.FC = () => {
 
     const fileInputRef = useRef<HTMLInputElement>(null);
     const analysisRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const restoreSavedArticle = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<ArticleLibraryPayload>>).detail;
+            if (!record?.payload?.analysis) return;
+            setAnalysis(record.payload.analysis);
+            if (record.payload.textInput) {
+                setTextInput(record.payload.textInput);
+            }
+            setError(null);
+            setTimeout(() => analysisRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        };
+        window.addEventListener('aiclinic:restore-articulo', restoreSavedArticle);
+        return () => window.removeEventListener('aiclinic:restore-articulo', restoreSavedArticle);
+    }, []);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
@@ -187,6 +204,33 @@ const ArticleAnalyzer: React.FC = () => {
             setLoadingMessage('Generando análisis clínico...');
             const result = await analyzeMedicalArticle(contentToAnalyze, mimeType);
             setAnalysis(result);
+
+            // Guardar en la Biblioteca de Estudio para compartir y reutilizar sin gastar tokens
+            try {
+                const firstLine = result.split('\n').find((l: string) => l.trim().length > 0)?.replace(/[#*]/g, '').trim() || '';
+                const articleTitle = file?.name?.replace(/\.[^.]+$/, '') || (firstLine.length > 5 ? firstLine.slice(0, 80) : 'Artículo Científico Analizado');
+                const recordId = createArticleRecordId(articleTitle, result);
+                void saveStudyRecord({
+                    id: recordId,
+                    kind: 'articulo',
+                    title: articleTitle,
+                    topic: articleTitle,
+                    topicKey: normalizeStudyTopic(articleTitle),
+                    payload: {
+                        articleTitle,
+                        sourceOrFile: file?.name || 'Texto introducido',
+                        analysis: result,
+                        textInput: textInput || '',
+                    },
+                    createdAt: new Date().toISOString(),
+                    lastViewedAt: new Date().toISOString(),
+                    viewCount: 1,
+                    isFavorite: false,
+                    version: 1,
+                });
+            } catch (saveErr) {
+                console.warn('No se pudo guardar el artículo en la biblioteca:', saveErr);
+            }
 
         } catch (e: any) {
             console.error(e);

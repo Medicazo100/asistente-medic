@@ -53,7 +53,7 @@ export interface ChatMessage {
     text: string;
 }
 
-export type StudyLibraryKind = 'doctoria' | 'guia' | 'simulacion';
+export type StudyLibraryKind = 'doctoria' | 'guia' | 'simulacion' | 'articulo' | 'quiz';
 
 export interface StudyLibraryRecord<T = unknown> {
     id: string;
@@ -77,6 +77,19 @@ export interface DoctoriaLibraryPayload {
 export interface GuideLibraryPayload {
     text: string;
     sources: GroundingSource[];
+}
+
+export interface ArticleLibraryPayload {
+    articleTitle: string;
+    sourceOrFile?: string;
+    analysis: string;
+    textInput?: string;
+}
+
+export interface QuizLibraryPayload {
+    topic: string;
+    difficulty: string;
+    questions: QuizQuestion[];
 }
 
 export interface SimulationLibraryPayload {

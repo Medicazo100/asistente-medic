@@ -1,7 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+    ArticleLibraryPayload,
     DoctoriaLibraryPayload,
     GuideLibraryPayload,
+    QuizLibraryPayload,
     SimulationLibraryPayload,
     StudyLibraryKind,
     StudyLibraryRecord,
@@ -16,6 +18,8 @@ const CLOUD_TABLE = 'study_library';
 export type DoctoriaRecord = StudyLibraryRecord<DoctoriaLibraryPayload>;
 export type GuideRecord = StudyLibraryRecord<GuideLibraryPayload>;
 export type SimulationRecord = StudyLibraryRecord<SimulationLibraryPayload>;
+export type ArticleRecord = StudyLibraryRecord<ArticleLibraryPayload>;
+export type QuizRecord = StudyLibraryRecord<QuizLibraryPayload>;
 
 let databasePromise: Promise<IDBDatabase | null> | null = null;
 let supabaseClient: SupabaseClient | null = null;
@@ -45,6 +49,30 @@ export function createStudyRecordId(kind: StudyLibraryKind, identity: string): s
 
 export function createSimulationRecordId(topic: string, clinicalCase: unknown): string {
     return createStudyRecordId('simulacion', `${topic}|${JSON.stringify(clinicalCase)}`);
+}
+
+export function createArticleRecordId(title: string, excerpt: string): string {
+    return createStudyRecordId('articulo', `${title}|${excerpt.slice(0, 100)}`);
+}
+
+export function createQuizRecordId(topic: string, difficulty: string, questionCount: number): string {
+    return createStudyRecordId('quiz', `${topic}|${difficulty}|${questionCount}`);
+}
+
+export function getSimulationDiagnosis(record: StudyLibraryRecord): string | null {
+    if (record.kind !== 'simulacion') return null;
+    const payload = record.payload as any;
+    if (payload?.preloadedDiagnosis?.text) {
+        const text = payload.preloadedDiagnosis.text;
+        const match = text.match(/###\s*Diagnóstico Principal\s*\n+([^\n#]+)/i);
+        if (match && match[1]) {
+            return match[1].replace(/[*_#\[\]\(\)]/g, '').trim();
+        }
+    }
+    if (payload?.clinicalCase?.caseTitle) {
+        return payload.clinicalCase.caseTitle;
+    }
+    return record.topic || null;
 }
 
 function getFallbackRecords(): StudyLibraryRecord[] {
@@ -183,14 +211,13 @@ export async function hydrateStudyLibraryFromCloud(): Promise<void> {
     const client = await getCloudClient();
     if (!client) return;
     try {
-        const userId = await getCloudUserId(client);
-        if (!userId) return;
+        // Consultar los 50 registros más recientes a nivel global para que estén disponibles
+        // en todos los dispositivos de la red y reutilizar análisis y casos previos sin gastar IA
         const { data, error } = await client
             .from(CLOUD_TABLE)
             .select('*')
-            .eq('user_id', userId)
             .order('last_viewed_at', { ascending: false })
-            .limit(100);
+            .limit(50);
         if (error) throw error;
         for (const item of data || []) {
             const remoteRecord: StudyLibraryRecord = {
@@ -236,7 +263,7 @@ export async function getStudyRecordById<T>(id: string): Promise<StudyLibraryRec
     return (records.find((record) => record.id === id) as StudyLibraryRecord<T> | undefined) || null;
 }
 
-export async function listRecentStudyRecords(limit = 100): Promise<StudyLibraryRecord[]> {
+export async function listRecentStudyRecords(limit = 50): Promise<StudyLibraryRecord[]> {
     const records = await readAllLocalRecords();
     return records
         .sort((left, right) => new Date(right.lastViewedAt).getTime() - new Date(left.lastViewedAt).getTime())

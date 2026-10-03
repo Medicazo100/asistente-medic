@@ -1,9 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { generateQuiz } from '../services/geminiService';
-import { QuizQuestion } from '../types';
+import { QuizLibraryPayload, QuizQuestion, StudyLibraryRecord } from '../types';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
+import { createQuizRecordId, normalizeStudyTopic, saveStudyRecord } from '../services/studyLibrary';
 
 const QuizGenerator: React.FC = () => {
     const [topic, setTopic] = useState('');
@@ -17,6 +18,24 @@ const QuizGenerator: React.FC = () => {
     const [isAnswered, setIsAnswered] = useState(false);
     const [score, setScore] = useState(0);
     const isQuizFinished = questions.length > 0 && currentQuestionIndex >= questions.length;
+
+    useEffect(() => {
+        const restoreSavedQuiz = (event: Event) => {
+            const record = (event as CustomEvent<StudyLibraryRecord<QuizLibraryPayload>>).detail;
+            if (!record?.payload?.questions || record.payload.questions.length === 0) return;
+            setTopic(record.payload.topic || '');
+            setDifficulty(record.payload.difficulty || 'Interno');
+            setNumQuestions(record.payload.questions.length);
+            setQuestions(record.payload.questions);
+            setCurrentQuestionIndex(0);
+            setScore(0);
+            setIsAnswered(false);
+            setSelectedAnswer(null);
+            setError(null);
+        };
+        window.addEventListener('aiclinic:restore-quiz', restoreSavedQuiz);
+        return () => window.removeEventListener('aiclinic:restore-quiz', restoreSavedQuiz);
+    }, []);
 
     const handleGenerateQuiz = async () => {
         if (!topic.trim()) {
@@ -36,6 +55,30 @@ const QuizGenerator: React.FC = () => {
                 setScore(0);
                 setIsAnswered(false);
                 setSelectedAnswer(null);
+
+                // Guardar en la Biblioteca de Estudio para compartir y reutilizar sin gastar tokens
+                try {
+                    const recordId = createQuizRecordId(topic, difficulty, quizQuestions.length);
+                    void saveStudyRecord({
+                        id: recordId,
+                        kind: 'quiz',
+                        title: `Quiz: ${topic} (${difficulty})`,
+                        topic,
+                        topicKey: normalizeStudyTopic(topic),
+                        payload: {
+                            topic,
+                            difficulty,
+                            questions: quizQuestions,
+                        },
+                        createdAt: new Date().toISOString(),
+                        lastViewedAt: new Date().toISOString(),
+                        viewCount: 1,
+                        isFavorite: false,
+                        version: 1,
+                    });
+                } catch (saveErr) {
+                    console.warn('No se pudo guardar el quiz en la biblioteca:', saveErr);
+                }
             }
         } catch (e) {
             const message = e instanceof Error ? e.message : 'Error al generar el cuestionario. Inténtalo de nuevo.';
