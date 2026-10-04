@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Card from './ui/Card';
 import LoadingSpinner from './ui/LoadingSpinner';
 import { Section } from '../constants';
@@ -74,6 +75,15 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    useEffect(() => {
+        if (!selectedHistoryRecord) return;
+        const previousOverflow = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = previousOverflow;
+        };
+    }, [selectedHistoryRecord]);
 
     const loadRecords = async () => {
         setIsLoading(true);
@@ -276,9 +286,9 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                 )}
             </Card>
 
-            {selectedHistoryRecord && (
+            {selectedHistoryRecord && typeof document !== 'undefined' && createPortal(
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fade-in"
+                    className="fixed inset-0 z-[100] flex items-start justify-center pt-5 sm:pt-10 pb-6 px-3 sm:px-4 bg-black/60 backdrop-blur-xs overflow-y-auto animate-fade-in"
                     onClick={() => setSelectedHistoryRecord(null)}
                     role="dialog"
                     aria-modal="true"
@@ -374,7 +384,8 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                             </button>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
