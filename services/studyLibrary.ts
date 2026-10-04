@@ -118,6 +118,20 @@ function openDatabase(): Promise<IDBDatabase | null> {
     return databasePromise;
 }
 
+function normalizeRecordHistory(record: StudyLibraryRecord): StudyLibraryRecord {
+    const rawHistory = Array.isArray(record.viewHistory) && record.viewHistory.length > 0
+        ? record.viewHistory
+        : Array.isArray((record.payload as any)?._viewHistory) && (record.payload as any)._viewHistory.length > 0
+            ? (record.payload as any)._viewHistory
+            : (record.lastViewedAt ? [record.lastViewedAt] : []);
+    const filteredHistory: string[] = (rawHistory as unknown[]).filter((item): item is string => typeof item === 'string' && Boolean(item));
+    const viewHistory: string[] = Array.from(new Set(filteredHistory)).slice(0, 30);
+    return {
+        ...record,
+        viewHistory,
+    };
+}
+
 async function readAllLocalRecords(): Promise<StudyLibraryRecord[]> {
     const database = await openDatabase();
     let records: StudyLibraryRecord[] = [];
@@ -131,7 +145,7 @@ async function readAllLocalRecords(): Promise<StudyLibraryRecord[]> {
             request.onerror = () => resolve(getFallbackRecords());
         });
     }
-    return records.filter(isValidStudyRecord);
+    return records.filter(isValidStudyRecord).map(normalizeRecordHistory);
 }
 
 async function writeLocalRecord(record: StudyLibraryRecord): Promise<void> {
@@ -265,6 +279,11 @@ export async function hydrateStudyLibraryFromCloud(): Promise<void> {
         if (error) throw error;
         for (const item of data || []) {
             if (item.id === 'test:connectivity') continue;
+            const rawCloudHistory = Array.isArray((item.payload as any)?._viewHistory)
+                ? (item.payload as any)._viewHistory
+                : (item.last_viewed_at ? [item.last_viewed_at] : []);
+            const filteredCloudHistory: string[] = (rawCloudHistory as unknown[]).filter((ts): ts is string => typeof ts === 'string' && Boolean(ts));
+            const cloudHistory: string[] = Array.from(new Set(filteredCloudHistory)).slice(0, 30);
             const remoteRecord: StudyLibraryRecord = {
                 id: item.id,
                 kind: item.kind,
@@ -275,6 +294,7 @@ export async function hydrateStudyLibraryFromCloud(): Promise<void> {
                 createdAt: item.created_at,
                 lastViewedAt: item.last_viewed_at,
                 viewCount: item.view_count || 1,
+                viewHistory: cloudHistory,
                 isFavorite: Boolean(item.is_favorite),
                 version: 1,
             };
@@ -320,10 +340,20 @@ export async function markStudyViewed(id: string): Promise<void> {
     const records = await readAllLocalRecords();
     const record = records.find((item) => item.id === id);
     if (!record) return;
+    const now = new Date().toISOString();
+    const prevHistory = Array.isArray(record.viewHistory) && record.viewHistory.length > 0
+        ? record.viewHistory
+        : (record.lastViewedAt ? [record.lastViewedAt] : []);
+    const updatedHistory = [now, ...prevHistory.filter((ts) => ts !== now)].slice(0, 30);
+    const updatedPayload = record.payload && typeof record.payload === 'object'
+        ? { ...(record.payload as any), _viewHistory: updatedHistory }
+        : record.payload;
     const updated: StudyLibraryRecord = {
         ...record,
-        lastViewedAt: new Date().toISOString(),
+        payload: updatedPayload,
+        lastViewedAt: now,
         viewCount: record.viewCount + 1,
+        viewHistory: updatedHistory,
     };
     await saveStudyRecord(updated);
 }
@@ -344,16 +374,28 @@ export function buildStudyRecord<T>(params: {
     existing?: StudyLibraryRecord<T> | null;
 }): StudyLibraryRecord<T> {
     const now = new Date().toISOString();
+    const rawExistingHistory: unknown[] = Array.isArray(params.existing?.viewHistory)
+        ? params.existing.viewHistory
+        : Array.isArray((params.existing?.payload as any)?._viewHistory)
+            ? (params.existing?.payload as any)._viewHistory
+            : (params.existing?.lastViewedAt ? [params.existing.lastViewedAt] : []);
+    const filteredExisting = rawExistingHistory.filter((ts): ts is string => typeof ts === 'string' && ts !== now);
+    const updatedHistory: string[] = [now, ...filteredExisting].slice(0, 30);
+    const updatedPayload = params.payload && typeof params.payload === 'object'
+        ? { ...(params.payload as any), _viewHistory: updatedHistory }
+        : params.payload;
+
     return {
         id: params.id,
         kind: params.kind,
         title: params.title,
         topic: params.topic,
         topicKey: normalizeStudyTopic(params.topic),
-        payload: params.payload,
+        payload: updatedPayload,
         createdAt: params.existing?.createdAt || now,
         lastViewedAt: now,
         viewCount: (params.existing?.viewCount || 0) + 1,
+        viewHistory: updatedHistory,
         isFavorite: params.existing?.isFavorite || false,
         version: 1,
     };

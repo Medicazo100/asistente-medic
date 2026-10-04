@@ -65,6 +65,7 @@ export interface StudyLibraryRecord<T = unknown> {
     createdAt: string;
     lastViewedAt: string;
     viewCount: number;
+    viewHistory?: string[];
     isFavorite: boolean;
     version: 1;
 }
