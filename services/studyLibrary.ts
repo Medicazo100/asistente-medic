@@ -329,7 +329,12 @@ export async function getStudyRecordById<T>(id: string): Promise<StudyLibraryRec
 export async function listRecentStudyRecords(limit = 50): Promise<StudyLibraryRecord[]> {
     const records = await readAllLocalRecords();
     return records
-        .sort((left, right) => new Date(right.lastViewedAt).getTime() - new Date(left.lastViewedAt).getTime())
+        .sort((left, right) => {
+            if (left.isFavorite !== right.isFavorite) {
+                return left.isFavorite ? -1 : 1;
+            }
+            return new Date(right.lastViewedAt).getTime() - new Date(left.lastViewedAt).getTime();
+        })
         .slice(0, limit);
 }
 

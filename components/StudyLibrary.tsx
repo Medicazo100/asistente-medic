@@ -98,14 +98,21 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
 
     const visibleRecords = useMemo(() => {
         const normalizedQuery = query.trim().toLocaleLowerCase();
-        return records.filter((record) => {
-            const matchesFilter = filter === 'todos'
-                || (filter === 'favoritos' && record.isFavorite)
-                || record.kind === filter;
-            const matchesQuery = !normalizedQuery
-                || `${record.title} ${record.topic}`.toLocaleLowerCase().includes(normalizedQuery);
-            return matchesFilter && matchesQuery;
-        });
+        return records
+            .filter((record) => {
+                const matchesFilter = filter === 'todos'
+                    || (filter === 'favoritos' && record.isFavorite)
+                    || record.kind === filter;
+                const matchesQuery = !normalizedQuery
+                    || `${record.title} ${record.topic}`.toLocaleLowerCase().includes(normalizedQuery);
+                return matchesFilter && matchesQuery;
+            })
+            .sort((left, right) => {
+                if (left.isFavorite !== right.isFavorite) {
+                    return left.isFavorite ? -1 : 1;
+                }
+                return new Date(right.lastViewedAt).getTime() - new Date(left.lastViewedAt).getTime();
+            });
     }, [filter, query, records]);
 
     const openRecord = async (record: StudyLibraryRecord) => {
@@ -209,7 +216,11 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                                         void openRecord(record);
                                     }
                                 }}
-                                className="w-full rounded-xl border border-gray-200 bg-gray-50 p-4 text-left transition hover:border-blue-400 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-800/80 dark:hover:border-cyan-500 dark:hover:bg-slate-800"
+                                className={`w-full rounded-xl border p-4 text-left transition ${
+                                    record.isFavorite
+                                        ? 'border-amber-300 bg-amber-50/50 hover:border-amber-400 hover:bg-amber-50 dark:border-amber-600/60 dark:bg-amber-950/20 dark:hover:bg-amber-950/30'
+                                        : 'border-gray-200 bg-gray-50 hover:border-blue-400 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-800/80 dark:hover:border-cyan-500 dark:hover:bg-slate-800'
+                                }`}
                             >
                                 <div className="flex items-start gap-3">
                                     <span className="text-2xl" aria-hidden="true">{KIND_ICONS[record.kind]}</span>
@@ -217,6 +228,11 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                                         <div className="flex flex-wrap items-center gap-2">
                                             <h3 className="font-bold text-gray-800 dark:text-gray-100 break-words">{record.title}</h3>
                                             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-slate-700 dark:text-cyan-300">{KIND_LABELS[record.kind]}</span>
+                                            {record.isFavorite && (
+                                                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 flex items-center gap-1 border border-amber-200 dark:border-amber-700">
+                                                    📌 Fijado al inicio
+                                                </span>
+                                            )}
                                         </div>
                                         <div className="mt-1">
                                             <button
@@ -274,8 +290,13 @@ const StudyLibrary: React.FC<StudyLibraryProps> = ({ onSectionChange }) => {
                                     <button
                                         type="button"
                                         onClick={(event) => void handleToggleFavorite(event, record)}
-                                        aria-label={record.isFavorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
-                                        className="rounded-lg px-2 py-1 text-lg hover:bg-white dark:hover:bg-slate-700"
+                                        aria-label={record.isFavorite ? 'Quitar de favoritos' : 'Fijar al inicio como favorito'}
+                                        title={record.isFavorite ? 'Quitar de favoritos (volver al orden cronológico)' : 'Fijar al inicio de la lista'}
+                                        className={`rounded-lg px-2.5 py-1.5 text-xl transition-all ${
+                                            record.isFavorite
+                                                ? 'text-amber-500 hover:scale-110 hover:bg-amber-100 dark:hover:bg-amber-900/40'
+                                                : 'text-gray-400 hover:text-amber-500 hover:scale-110 hover:bg-white dark:hover:bg-slate-700'
+                                        }`}
                                     >
                                         {record.isFavorite ? '★' : '☆'}
                                     </button>
