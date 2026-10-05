@@ -69,10 +69,7 @@ export function getSimulationDiagnosis(record: StudyLibraryRecord): string | nul
             return match[1].replace(/[*_#\[\]\(\)]/g, '').trim();
         }
     }
-    if (payload?.clinicalCase?.caseTitle) {
-        return payload.clinicalCase.caseTitle;
-    }
-    return record.topic || null;
+    return record.topic || payload?.topic || null;
 }
 
 function getFallbackRecords(): StudyLibraryRecord[] {
@@ -209,7 +206,7 @@ export function isValidStudyRecord(record: unknown): record is StudyLibraryRecor
     if (!r.kind || !r.payload || typeof r.payload !== 'object') return false;
     if (r.kind === 'simulacion') {
         const payload = r.payload as any;
-        if (!payload.clinicalCase || !payload.clinicalCase.patientPresentation) return false;
+        if (!payload.clinicalCase || (!payload.clinicalCase.caseTitle && !payload.clinicalCase.patientProfile && !payload.clinicalCase.historyOfPresentIllness)) return false;
     }
     if (r.kind === 'quiz') {
         const payload = r.payload as any;

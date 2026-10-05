@@ -207,15 +207,11 @@ const MedicalSimulator: React.FC = () => {
 
     useEffect(() => {
         if (!clinicalCase || step === 0) return;
-        const hasPreparedResources = allAvailableStudies.labs.length > 0
-            || allAvailableStudies.imaging.length > 0
-            || dynamicLabsBuffer.length > 0
-            || dynamicImagingBuffer.length > 0;
-        if (!hasPreparedResources) return;
 
-        const recordId = createSimulationRecordId(topic, clinicalCase);
+        const effectiveTopic = topic || clinicalCase.caseTitle;
+        const recordId = createSimulationRecordId(effectiveTopic, clinicalCase);
         const payload: SimulationLibraryPayload = {
-            topic,
+            topic: effectiveTopic,
             difficulty,
             clinicalCase,
             allAvailableStudies,
@@ -232,12 +228,13 @@ const MedicalSimulator: React.FC = () => {
                 id: recordId,
                 kind: 'simulacion',
                 title: clinicalCase.caseTitle,
-                topic,
-                topicKey: normalizeStudyTopic(topic),
+                topic: effectiveTopic,
+                topicKey: normalizeStudyTopic(effectiveTopic),
                 payload,
                 createdAt: existing?.createdAt || now,
                 lastViewedAt: existing?.lastViewedAt || now,
                 viewCount: existing?.viewCount || 1,
+                viewHistory: existing?.viewHistory || [now],
                 isFavorite: existing?.isFavorite || false,
                 version: 1,
             });
@@ -415,6 +412,37 @@ const MedicalSimulator: React.FC = () => {
             const caseData = await generateClinicalCase(topic, difficulty);
             setClinicalCase(caseData); 
             setStep(1);
+
+            // Guardar inmediatamente en la Biblioteca de Estudio para asegurar persistencia instantánea
+            try {
+                const recordId = createSimulationRecordId(topic, caseData);
+                const now = new Date().toISOString();
+                void saveStudyRecord({
+                    id: recordId,
+                    kind: 'simulacion',
+                    title: caseData.caseTitle,
+                    topic,
+                    topicKey: normalizeStudyTopic(topic),
+                    payload: {
+                        topic,
+                        difficulty,
+                        clinicalCase: caseData,
+                        allAvailableStudies: { labs: [], imaging: [] },
+                        dynamicLabsBuffer: [],
+                        dynamicImagingBuffer: [],
+                        preloadedDiagnosis: null,
+                        planOptionsCache: null,
+                    },
+                    createdAt: now,
+                    lastViewedAt: now,
+                    viewCount: 1,
+                    viewHistory: [now],
+                    isFavorite: false,
+                    version: 1,
+                });
+            } catch (saveErr) {
+                console.warn('No se pudo guardar la simulación inicial en la biblioteca:', saveErr);
+            }
 
             // DISPARO EN SEGUNDO PLANO: Estudios y Plan Terapéutico sin bloquear la interfaz
             startBackgroundStudyPipeline(caseData);
@@ -620,6 +648,7 @@ const MedicalSimulator: React.FC = () => {
             try {
                 const diagnosisData = await prefetchingDiagnosisPromiseRef.current;
                 setFinalDiagnosis(diagnosisData);
+                setPreloadedDiagnosis(diagnosisData);
                 setStep(3);
             } catch (err) {
                 console.error("Error al aguardar diagnóstico en vuelo:", err);
@@ -629,6 +658,7 @@ const MedicalSimulator: React.FC = () => {
                     if (!fullContext) throw new Error('No hay suficiente información.');
                     const directData = await getFinalDiagnosis(fullContext, topic);
                     setFinalDiagnosis(directData);
+                    setPreloadedDiagnosis(directData);
                     setStep(3);
                 } catch (fallbackErr) {
                     setError('Error al generar el diagnóstico.');
@@ -647,6 +677,7 @@ const MedicalSimulator: React.FC = () => {
             if (!fullContext) { setError('No hay suficiente información.'); setIsLoading(false); return; }
             const diagnosisData = await getFinalDiagnosis(fullContext, topic);
             setFinalDiagnosis(diagnosisData); 
+            setPreloadedDiagnosis(diagnosisData);
             setStep(3);
         } catch(e) { 
             setError('Error al generar el diagnóstico.'); 

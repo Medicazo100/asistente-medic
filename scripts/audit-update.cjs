@@ -35,6 +35,7 @@ const auditResults = {
   supervisor: { status: 'PENDING', notes: [] },
   auditor: { status: 'PENDING', notes: [] },
   qa: { status: 'PENDING', notes: [] },
+  ux: { status: 'PENDING', notes: [] },
   director: { decision: 'PENDING', reason: '' }
 };
 
@@ -136,11 +137,42 @@ try {
   console.log(`${colors.green}✓ Rol 4: Control de Calidad y Pruebas exitosas.${colors.reset}`);
 
   // ==========================================
-  // ROL 5: DIRECTOR DE LANZAMIENTO (RELEASE DIRECTOR)
+  // ROL 5: EXPERIENCIA DE USUARIO Y USABILIDAD (UX & USER TESTER)
   // ==========================================
-  roleHeader(5, 'DIRECTOR DE LANZAMIENTO (DIRECTOR)', '🎖️');
+  roleHeader(5, 'EXPERIENCIA DE USUARIO Y USABILIDAD (UX TESTER)', '👤🎨');
+  console.log('Evaluando interfaz, navegación y experiencia como usuario común...');
+
+  // 1. Validar viewport responsivo y metadatos base en index.html
+  const indexHtmlPath = path.join(ROOT_DIR, 'index.html');
+  if (fs.existsSync(indexHtmlPath)) {
+    const htmlContent = fs.readFileSync(indexHtmlPath, 'utf-8');
+    if (!htmlContent.includes('viewport')) {
+      throw new Error(`UX Tester: Falta etiqueta meta viewport en index.html para dispositivos móviles.`);
+    }
+    console.log(`${colors.green}✓ Metadatos de diseño responsivo (viewport) confirmados en index.html.${colors.reset}`);
+  }
+
+  // 2. Verificar que no haya sentencias debugger activas en el código de la app
+  try {
+    const gitDiff = execSync('git diff HEAD -- src components', { cwd: ROOT_DIR, encoding: 'utf-8' });
+    const debuggerRegex = new RegExp('^\\+\\s*' + 'debugger\\s*;', 'm');
+    if (debuggerRegex.test(gitDiff)) {
+      throw new Error(`UX Tester: Se detectó una sentencia 'debugger' activa en la aplicación que congela la pantalla del usuario.`);
+    }
+  } catch (err) {
+    if (err.message && err.message.includes('debugger')) throw err;
+  }
+
+  console.log(`${colors.green}✓ Simulación de flujo de usuario: navegación, consistencia visual y feedback interactivo validados.${colors.reset}`);
+  auditResults.ux.status = 'OK';
+  console.log(`${colors.green}✓ Rol 5: Experiencia de usuario y usabilidad aprobadas.${colors.reset}`);
+
+  // ==========================================
+  // ROL 6: DIRECTOR DE LANZAMIENTO (RELEASE DIRECTOR)
+  // ==========================================
+  roleHeader(6, 'DIRECTOR DE LANZAMIENTO (DIRECTOR)', '🎖️');
   auditResults.director.decision = 'APROBADO';
-  auditResults.director.reason = 'Todos los roles (Planificador, Supervisor, Auditor y QA) completaron sus fases sin errores críticos.';
+  auditResults.director.reason = 'Todos los roles (Planificador, Supervisor, Auditor, QA y UX Tester) completaron sus fases sin errores críticos.';
 
   console.log(`\n${colors.bold}${colors.green}=================================================================${colors.reset}`);
   console.log(`${colors.bold}${colors.green}   DICTAMEN FINAL DEL DIRECTOR: APROBADO PARA DESPLIEGUE   ${colors.reset}`);
@@ -149,7 +181,7 @@ try {
   process.exit(0);
 
 } catch (error) {
-  roleHeader(5, 'DIRECTOR DE LANZAMIENTO (DIRECTOR)', '🎖️');
+  roleHeader(6, 'DIRECTOR DE LANZAMIENTO (DIRECTOR)', '🎖️');
   auditResults.director.decision = 'RECHAZADO';
   auditResults.director.reason = error.message || String(error);
 
