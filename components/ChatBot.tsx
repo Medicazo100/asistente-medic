@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createChat } from '../services/geminiService';
-import { ChatMessage, DoctoriaLibraryPayload, StudyLibraryRecord } from '../types';
+import { ChatMessage, DoctoriaLibraryPayload, StudyLibraryRecord, BoosterClinicoResult } from '../types';
 import Card from './ui/Card';
-import BoosterClinico from './BoosterClinico';
+import { BoosterClinicoButton, BoosterClinicoCard } from './BoosterClinico';
+import { optimizarPreguntaClinica } from '../services/doctorIaService';
 import { marked } from 'marked';
 import { Chat } from '@google/genai';
 import useLocalStorage from '../hooks/useLocalStorage';
@@ -19,6 +20,11 @@ const ChatBot: React.FC = () => {
     const [messages, setMessages] = useLocalStorage<ChatMessage[]>('chat_messages', []);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
+    const [isOptimizingBooster, setIsOptimizingBooster] = useState(false);
+    const [boosterResult, setBoosterResult] = useState<BoosterClinicoResult | null>(null);
+    const [boosterOriginalText, setBoosterOriginalText] = useState('');
+    const [boosterError, setBoosterError] = useState<string | null>(null);
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -40,16 +46,45 @@ const ChatBot: React.FC = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
-    const handleApplyOptimized = (optimizedQuestion: string) => {
-        setInput(optimizedQuestion);
-        setTimeout(() => {
-            textareaRef.current?.focus();
-        }, 50);
+    const handleOptimizeBooster = async () => {
+        const currentPrompt = input.trim();
+        if (!currentPrompt || isOptimizingBooster || isLoading) return;
+
+        setIsOptimizingBooster(true);
+        setBoosterError(null);
+
+        try {
+            const data = await optimizarPreguntaClinica(currentPrompt);
+            setBoosterOriginalText(currentPrompt);
+            setBoosterResult(data);
+        } catch (error: any) {
+            console.error('Error al optimizar con Booster Clínico:', error);
+            setBoosterError('No pudimos optimizar tu duda en este momento. Inténtalo de nuevo.');
+        } finally {
+            setIsOptimizingBooster(false);
+        }
     };
 
-    const handleSendOptimized = (optimizedQuestion: string) => {
+    const handleDiscardBooster = () => {
+        setBoosterResult(null);
+        setBoosterError(null);
+    };
+
+    const handleApplyBooster = () => {
+        if (!boosterResult) return;
+        setInput(boosterResult.preguntaOptimizada);
+        setBoosterResult(null);
+        setBoosterError(null);
+        setTimeout(() => textareaRef.current?.focus(), 50);
+    };
+
+    const handleSendNowBooster = () => {
+        if (!boosterResult) return;
+        const text = boosterResult.preguntaOptimizada;
+        setBoosterResult(null);
+        setBoosterError(null);
         setInput('');
-        void handleSend(optimizedQuestion);
+        void handleSend(text);
     };
 
     const startNewChat = () => {
@@ -57,6 +92,8 @@ const ChatBot: React.FC = () => {
         setMessages([{ role: 'model', text: '¡Hola! Soy tu asistente de IA. ¿En qué puedo ayudarte hoy?' }]);
         setInput('');
         setIsLoading(false);
+        setBoosterResult(null);
+        setBoosterError(null);
     };
 
     useEffect(() => {
@@ -182,21 +219,41 @@ const ChatBot: React.FC = () => {
     
     return (
         <Card className="max-w-3xl mx-auto flex flex-col h-[85vh] sm:h-[88vh] !p-3.5 sm:!p-5 overflow-hidden">
-            <div className="flex justify-between items-center mb-3 border-b pb-2 dark:border-slate-700 shrink-0">
-                <div>
-                    <h2 className="text-xl sm:text-2xl font-bold text-blue-800 dark:text-cyan-300">💬 DoctorIA</h2>
-                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">Un Médico virtual apoyando a un médico real</p>
+            {/* Encabezado con Booster Clínico a la izquierda, Título centrado y Reiniciar a la derecha */}
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 mb-3 border-b pb-2.5 dark:border-slate-700 shrink-0">
+                {/* Lado Izquierdo: Botón Booster Clínico con Tooltip Completo al pasar el cursor */}
+                <div className="flex items-center justify-start">
+                    <BoosterClinicoButton
+                        onClick={handleOptimizeBooster}
+                        disabled={!input.trim() || isLoading}
+                        isOptimizing={isOptimizingBooster}
+                    />
                 </div>
-                <button
-                    onClick={startNewChat}
-                    title="Reiniciar conversación y comenzar nuevo caso"
-                    className="text-xs font-bold py-1.5 px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-800 border-slate-300 hover:border-sky-400 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-cyan-300 dark:border-cyan-500/60 dark:hover:border-cyan-400"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                        <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0-.75.75v4.482a.75.75 0 0 0 1.5 0v-2.05l.435.435a7 7 0 1 0 1.942-8.91.75.75 0 0 0-.966 1.144 5.5 5.5 0 0 1 9.391 3.494Z" clipRule="evenodd" />
-                    </svg>
-                    <span>Reiniciar</span>
-                </button>
+
+                {/* Centro: Título DoctorIA y leyenda inferior centrada */}
+                <div className="flex flex-col items-center justify-center text-center px-1">
+                    <h2 className="text-xl sm:text-2xl font-bold text-blue-800 dark:text-cyan-300 leading-tight">
+                        💬 DoctorIA
+                    </h2>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5 leading-tight">
+                        Un Médico virtual apoyando a un médico real
+                    </p>
+                </div>
+
+                {/* Lado Derecho: Botón Reiniciar en el costado opuesto para evitar presiones accidentales */}
+                <div className="flex items-center justify-end">
+                    <button
+                        onClick={startNewChat}
+                        title="Reiniciar conversación y comenzar nuevo caso"
+                        className="text-xs font-bold py-1.5 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-800 border-slate-300 hover:border-sky-400 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-cyan-300 dark:border-cyan-500/60 dark:hover:border-cyan-400 cursor-pointer"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                            <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0-.75.75v4.482a.75.75 0 0 0 1.5 0v-2.05l.435.435a7 7 0 1 0 1.942-8.91.75.75 0 0 0-.966 1.144 5.5 5.5 0 0 1 9.391 3.494Z" clipRule="evenodd" />
+                        </svg>
+                        <span className="hidden sm:inline">Reiniciar</span>
+                        <span className="sm:hidden">Reset</span>
+                    </button>
+                </div>
             </div>
             <div 
                 ref={scrollContainerRef}
@@ -229,7 +286,7 @@ const ChatBot: React.FC = () => {
                                                         textareaRef.current?.focus();
                                                     }, 50);
                                                 }}
-                                                className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-sm transition-all"
+                                                className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white shadow-sm transition-all cursor-pointer"
                                                 title="Carga tu duda en el cuadro de texto para usar el Booster Clínico"
                                             >
                                                 <span>⚡ Cargar en Booster Clínico</span>
@@ -256,11 +313,14 @@ const ChatBot: React.FC = () => {
                 </div>
             )}
             <div className="mt-2 sm:mt-2.5 pt-2 sm:pt-2.5 border-t dark:border-slate-700 shrink-0">
-                <BoosterClinico
-                    inputText={input}
-                    onApplyOptimized={handleApplyOptimized}
-                    onSendOptimized={handleSendOptimized}
-                    disabled={isLoading}
+                <BoosterClinicoCard
+                    result={boosterResult}
+                    originalText={boosterOriginalText}
+                    errorMessage={boosterError}
+                    onClearError={() => setBoosterError(null)}
+                    onDiscard={handleDiscardBooster}
+                    onApply={handleApplyBooster}
+                    onSendNow={handleSendNowBooster}
                 />
                 <div className="flex items-end gap-2">
                     <textarea
@@ -284,7 +344,7 @@ const ChatBot: React.FC = () => {
                         onClick={() => handleSend()}
                         disabled={isLoading || !input.trim()}
                         title="Enviar a DoctorIA"
-                        className="bg-blue-600 text-white font-bold p-3 rounded-xl hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-slate-600 transition-colors dark:bg-purple-600 dark:hover:bg-purple-700 shrink-0 h-[46px] w-[46px] flex items-center justify-center shadow-sm"
+                        className="bg-blue-600 text-white font-bold p-3 rounded-xl hover:bg-blue-700 disabled:bg-gray-400 dark:disabled:bg-slate-600 transition-colors dark:bg-purple-600 dark:hover:bg-purple-700 shrink-0 h-[46px] w-[46px] flex items-center justify-center shadow-sm cursor-pointer"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                             <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
