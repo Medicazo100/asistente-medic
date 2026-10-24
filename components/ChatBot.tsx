@@ -181,11 +181,11 @@ const ChatBot: React.FC = () => {
     };
     
     return (
-        <Card className="max-w-2xl mx-auto flex flex-col h-[80vh]">
-            <div className="flex justify-between items-center mb-4 border-b pb-2 dark:border-slate-600">
+        <Card className="max-w-3xl mx-auto flex flex-col h-[85vh] sm:h-[88vh] !p-3.5 sm:!p-5 overflow-hidden">
+            <div className="flex justify-between items-center mb-3 border-b pb-2 dark:border-slate-700 shrink-0">
                 <div>
-                    <h2 className="text-2xl font-bold text-blue-800 dark:text-cyan-300">💬 DoctorIA</h2>
-                    <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Un Médico virtual apoyando a un médico real</p>
+                    <h2 className="text-xl sm:text-2xl font-bold text-blue-800 dark:text-cyan-300">💬 DoctorIA</h2>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">Un Médico virtual apoyando a un médico real</p>
                 </div>
                 <button
                     onClick={startNewChat}
@@ -201,11 +201,11 @@ const ChatBot: React.FC = () => {
             <div 
                 ref={scrollContainerRef}
                 onScroll={handleScroll}
-                className="flex-grow overflow-y-auto pr-4 -mr-4 space-y-4"
+                className="flex-1 min-h-0 overflow-y-auto pr-2 sm:pr-3 space-y-4 scroll-smooth"
             >
                 {messages.map((msg, index) => (
                     <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-lg p-3 rounded-2xl ${msg.role === 'user' ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 dark:bg-slate-700 text-gray-800 dark:text-gray-200 rounded-bl-none'}`}>
+                        <div className={`max-w-xl sm:max-w-2xl p-3 sm:p-3.5 rounded-2xl ${msg.role === 'user' ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 dark:bg-slate-700 text-gray-800 dark:text-gray-200 rounded-bl-none'}`}>
                            {msg.role === 'model' && msg.text === '' ? (
                                 <div className="flex items-center space-x-2">
                                     <div className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></div>
@@ -214,7 +214,7 @@ const ChatBot: React.FC = () => {
                                 </div>
                            ) : (
                                 <>
-                                    <div className="prose prose-sm dark:prose-invert max-w-none" dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) }}></div>
+                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) }}></div>
                                     {msg.role === 'model' && msg.text.toLowerCase().includes('booster') && index > 0 && messages[index - 1]?.role === 'user' && (
                                         <div className="mt-3 pt-2.5 border-t border-slate-300 dark:border-slate-600 flex items-center justify-between gap-2 flex-wrap">
                                             <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
@@ -244,10 +244,10 @@ const ChatBot: React.FC = () => {
                  <div ref={messagesEndRef} />
             </div>
             {showScrollBottom && (
-                <div className="flex justify-center -mb-1 pt-1 z-10 animate-fade-in">
+                <div className="flex justify-center -mt-8 mb-2 z-20 animate-fade-in relative pointer-events-none">
                     <button
                         onClick={scrollToBottom}
-                        className="px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-md hover:shadow-lg flex items-center gap-1.5 transition-all cursor-pointer border border-sky-400/50"
+                        className="pointer-events-auto px-3.5 py-1.5 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-lg hover:shadow-xl flex items-center gap-1.5 transition-all cursor-pointer border border-sky-300/60 backdrop-blur-xs"
                         title="Bajar al final de la respuesta"
                     >
                         <span>↓</span>
@@ -255,7 +255,7 @@ const ChatBot: React.FC = () => {
                     </button>
                 </div>
             )}
-            <div className="mt-2 sm:mt-4 pt-2 sm:pt-3 border-t dark:border-slate-600">
+            <div className="mt-2 sm:mt-2.5 pt-2 sm:pt-2.5 border-t dark:border-slate-700 shrink-0">
                 <BoosterClinico
                     inputText={input}
                     onApplyOptimized={handleApplyOptimized}
@@ -269,7 +269,7 @@ const ChatBot: React.FC = () => {
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         placeholder="Escribe tu pregunta o duda clínica aquí..."
-                        className="w-full px-4 py-2.5 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm leading-relaxed"
+                        className="w-full px-3.5 sm:px-4 py-2 sm:py-2.5 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-600 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-sky-500 text-sm leading-relaxed"
                         onKeyDown={e => {
                             if (e.key === 'Enter' && !e.shiftKey) {
                                 e.preventDefault();
