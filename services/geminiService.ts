@@ -886,32 +886,40 @@ export function cleanMedicalMarkdown(text: string): string {
     if (!text) return '';
     let s = text;
     
-    // 1. Reemplazar comandos LaTeX específicos dentro o fuera de fórmulas
-    s = s.replace(/\\+(?:text|mathrm|mathbf)\{([^}]*)\}/g, '$1');
+    // 1. Reemplazar comandos de texto LaTeX específicos dentro o fuera de fórmulas
+    s = s.replace(/\\+(?:text|mathrm|mathbf|textit|textbf)\{([^}]*)\}/g, '$1');
+
+    // 2. Operadores matemáticos y símbolos médicos LaTeX
+    s = s.replace(/\\+(?:times|cdot)\b/g, '×');
+    s = s.replace(/\\+(?:div)\b/g, '÷');
     s = s.replace(/\\+(?:ge|geq)\b/g, '≥');
     s = s.replace(/\\+(?:le|leq)\b/g, '≤');
     s = s.replace(/\\+pm\b/g, '±');
-    s = s.replace(/\\+times\b/g, '×');
     s = s.replace(/\\+approx\b/g, '≈');
     s = s.replace(/\\+neq\b/g, '≠');
-    
-    // Superíndices comunes (ej: kg/m^2 -> kg/m²)
+    s = s.replace(/\\+(?:mu|micro)\b/g, 'µ');
+
+    // 3. Superíndices y subíndices comunes (ej: kg/m^2 -> kg/m², O_2 -> O₂)
     s = s.replace(/\^\{?2\}?/g, '²');
     s = s.replace(/\^\{?3\}?/g, '³');
-    
-    // Fracciones simples: \frac{a}{b} -> a/b
-    s = s.replace(/\\+frac\{([^}]+)\}\{([^}]+)\}/g, '$1/$2');
+    s = s.replace(/_\{?2\}?/g, '₂');
 
-    // 2. Limpiar delimitadores de fórmulas matemáticas LaTeX ($...$ o $$...$$)
-    s = s.replace(/\$\$([^$]+)\$\$/g, '$1');
-    s = s.replace(/\$([^$]+)\$/g, '$1');
+    // 4. Fracciones simples: \frac{a}{b} -> a / b
+    s = s.replace(/\\+frac\{([^}]+)\}\{([^}]+)\}/g, '$1 / $2');
 
-    // 3. Limpiar barras diagonales o escapes huérfanos antes de símbolos o números
-    s = s.replace(/\\([≥≤±×≈≠<>=])/g, '$1');
+    // 5. Limpiar delimitadores de fórmulas matemáticas LaTeX ($...$ o $$...$$)
+    s = s.replace(/\$\$([\s\S]*?)\$\$/g, '$1');
+    s = s.replace(/\$([^\n$]+)\$/g, '$1');
+
+    // 6. Limpiar barras diagonales o escapes huérfanos antes de símbolos o números
+    s = s.replace(/\\([≥≤±×≈≠<>=/·÷%])/g, '$1');
     s = s.replace(/\\([0-9])/g, '$1');
 
-    // 4. Limpiar signos de dólar sueltos junto a comparaciones o números
-    s = s.replace(/\$\s*([<>=≥≤])/g, '$1');
+    // 7. Limpiar espacios dobles generados al remover comandos
+    s = s.replace(/ {2,}/g, ' ');
+
+    // 8. Limpiar signos de dólar residuales junto a números o comparaciones
+    s = s.replace(/\$\s*([<>=≥≤0-9])/g, '$1');
     s = s.replace(/([<>=≥≤0-9])\s*\$/g, '$1');
 
     return s;
@@ -1053,7 +1061,15 @@ En este modo, entrega la respuesta médica exhaustiva y de excelencia con la sig
 
 ---
 
-### REGLAS GENERALES DE ESTILO:
+### REGLAS GENERALES DE ESTILO Y FORMATO:
+- **FORMATO DE TEXTO Y CÁLCULOS (ESTRICTO - SIN SINTAXIS LATEX NI SIGNOS DE DÓLAR)**:
+  * Redacta SIEMPRE en texto plano y Markdown limpio legible.
+  * **ESTÁ ESTRICTAMENTE PROHIBIDO usar sintaxis LaTeX, fórmulas entre signos de dólar ($ o $$) o comandos como \\text{}, \\times, \\frac{}, \\ge, \\le**.
+  * En cálculos de dosis ponderales o fórmulas médicas, escribe en texto natural directo y claro, por ejemplo:
+    - ✅ Correcto: "Dosis baja (10 mg/kg): 5 kg × 10 = 50 mg por dosis."
+    - ✅ Correcto: "Dosis alta (15 mg/kg): 5 kg × 15 = 75 mg por dosis."
+    - ❌ Prohibido: "$5 \\text{ kg} \\times 10 = 50 \\text{ mg por dosis}$"
+  * Utiliza símbolos tipográficos médicos estándar: ×, ≥, ≤, ±, %, etc.
 - Estructura siempre con encabezados legibles (##, ###), viñetas y negritas.
 - Explica el **POR QUÉ** de cada decisión fundamentada para educar el criterio del interno.
 - Mantén siempre el tono de un médico adscrito/mentor clínico: exigente pero formativo, cercano y ético.`;

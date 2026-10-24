@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { createChat } from '../services/geminiService';
+import { createChat, cleanMedicalMarkdown } from '../services/geminiService';
 import { ChatMessage, DoctoriaLibraryPayload, StudyLibraryRecord, BoosterClinicoResult } from '../types';
 import Card from './ui/Card';
 import { BoosterClinicoButton, BoosterClinicoCard } from './BoosterClinico';
@@ -185,22 +185,24 @@ const ChatBot: React.FC = () => {
             let text = '';
             for await (const chunk of result) {
                  text += chunk.text;
+                 const cleanedText = cleanMedicalMarkdown(text);
                  setMessages(prev => {
                      const newMessages = [...prev];
                      if (newMessages.length > 0) {
-                        newMessages[newMessages.length - 1].text = text;
+                        newMessages[newMessages.length - 1].text = cleanedText;
                      }
                      return newMessages;
                  });
             }
 
-            if (text.trim()) {
+            const finalText = cleanMedicalMarkdown(text);
+            if (finalText.trim()) {
                 await saveStudyRecord(buildStudyRecord({
                     id: createStudyRecordId('doctoria', question),
                     kind: 'doctoria',
                     title: question,
                     topic: question,
-                    payload: { question, response: text },
+                    payload: { question, response: finalText },
                 }));
             }
         } catch (error) {
@@ -271,7 +273,7 @@ const ChatBot: React.FC = () => {
                                 </div>
                            ) : (
                                 <>
-                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(msg.text) }}></div>
+                                    <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(cleanMedicalMarkdown(msg.text)) }}></div>
                                     {msg.role === 'model' && msg.text.toLowerCase().includes('booster') && index > 0 && messages[index - 1]?.role === 'user' && (
                                         <div className="mt-3 pt-2.5 border-t border-slate-300 dark:border-slate-600 flex items-center justify-between gap-2 flex-wrap">
                                             <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
