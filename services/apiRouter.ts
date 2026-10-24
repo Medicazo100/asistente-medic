@@ -40,19 +40,26 @@ const LIMITES_TOKENS: Record<string, number> = {
     analizador: 6144,
     quizzes: 5120,
     notas: 3072,
-    doctoria: 2500,
+    doctoria: 8192,
     guias: 4096,
 };
 
 const LIMITE_GENERAL_TOKENS = 3072;
-const MODELOS_CHAT = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-2.5-flash'];
+const MODELOS_CHAT = [
+    'gemini-flash-lite-latest',
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-2.5-flash',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash'
+];
 const TIMEOUTS_SOLICITUD_MS: Record<string, number> = {
     simulador: 45000,
     analizador: 60000,
     quizzes: 50000,
     notas: 35000,
     guias: 40000,
-    doctoria: 30000,
+    doctoria: 60000,
 };
 const TIMEOUT_GENERAL_MS = 30000;
 
@@ -70,7 +77,12 @@ function esErrorTransitorio(error: any): boolean {
         mensaje.includes('timeout') ||
         mensaje.includes('aborterror') ||
         mensaje.includes('aborted') ||
-        mensaje.includes('deadline exceeded');
+        mensaje.includes('deadline exceeded') ||
+        mensaje.includes('fetch failed') ||
+        mensaje.includes('failed to fetch') ||
+        mensaje.includes('network') ||
+        mensaje.includes('econnreset') ||
+        mensaje.includes('enotfound');
 }
 
 /** Obtiene una variable de entorno compatible con Vite, navegador y Node. */

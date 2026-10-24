@@ -12,12 +12,35 @@ import ClinicalScores from './components/ClinicalScores';
 import Sidebar from './components/layout/Sidebar';
 import ArticleAnalyzer from './components/ArticleAnalyzer';
 import StudyLibrary from './components/StudyLibrary';
+import BoosterAnnouncementModal from './components/ui/BoosterAnnouncementModal';
 import useLocalStorage from './hooks/useLocalStorage';
 
 const App: React.FC = () => {
     // Persist active section to allow restoration after refresh/close
     const [activeSection, setActiveSection] = useLocalStorage<Section>('app_activeSection', Section.Welcome);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [showBoosterAnnouncement, setShowBoosterAnnouncement] = useState(() => {
+        try {
+            return !localStorage.getItem('aiclinic_booster_seen_v1');
+        } catch {
+            return false;
+        }
+    });
+
+    const handleExploreBooster = () => {
+        try {
+            localStorage.setItem('aiclinic_booster_seen_v1', 'true');
+        } catch {}
+        setShowBoosterAnnouncement(false);
+        setActiveSection(Section.ChatBot);
+    };
+
+    const handleCloseBoosterAnnouncement = () => {
+        try {
+            localStorage.setItem('aiclinic_booster_seen_v1', 'true');
+        } catch {}
+        setShowBoosterAnnouncement(false);
+    };
 
     // useMemo ensures component instances are created only once, preserving their state
     const sections = useMemo(() => [
@@ -34,6 +57,12 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-blue-50 via-teal-50 to-green-50 text-gray-800 dark:from-indigo-900 dark:via-slate-900 dark:to-purple-900 dark:text-gray-200 flex">
+            {showBoosterAnnouncement && (
+                <BoosterAnnouncementModal
+                    onExplore={handleExploreBooster}
+                    onClose={handleCloseBoosterAnnouncement}
+                />
+            )}
             <Sidebar 
                 activeSection={activeSection} 
                 onSectionChange={setActiveSection}

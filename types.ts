@@ -75,6 +75,11 @@ export interface DoctoriaLibraryPayload {
     response: string;
 }
 
+export interface BoosterClinicoResult {
+    preguntaOptimizada: string;
+    perla: string;
+}
+
 export interface GuideLibraryPayload {
     text: string;
     sources: GroundingSource[];
