@@ -255,7 +255,7 @@ const ChatBot: React.FC = () => {
                     </button>
                 </div>
             )}
-            <div className="mt-4 pt-3 border-t dark:border-slate-600">
+            <div className="mt-2 sm:mt-4 pt-2 sm:pt-3 border-t dark:border-slate-600">
                 <BoosterClinico
                     inputText={input}
                     onApplyOptimized={handleApplyOptimized}

@@ -22,7 +22,7 @@ const BoosterAnnouncementModal: React.FC<BoosterAnnouncementModalProps> = ({ onE
             onClick={onClose}
         >
             <div
-                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-6 md:p-8 max-w-lg w-full relative transform transition-all duration-300 border border-sky-200 dark:border-sky-800 overflow-hidden"
+                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl p-5 sm:p-6 md:p-8 max-w-lg w-full relative transform transition-all duration-300 border border-sky-200 dark:border-sky-800 overflow-y-auto max-h-[92vh]"
                 onClick={e => e.stopPropagation()}
             >
                 {/* Botón Cerrar */}
