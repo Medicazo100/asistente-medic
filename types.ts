@@ -51,6 +51,7 @@ export interface ImagingResult {
 export interface ChatMessage {
     role: 'user' | 'model';
     text: string;
+    mode?: 'basica' | 'booster' | 'normal';
 }
 
 export type StudyLibraryKind = 'doctoria' | 'guia' | 'simulacion' | 'articulo' | 'quiz';

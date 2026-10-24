@@ -3,6 +3,7 @@ import { createChat, cleanMedicalMarkdown } from '../services/geminiService';
 import { ChatMessage, DoctoriaLibraryPayload, StudyLibraryRecord, BoosterClinicoResult } from '../types';
 import Card from './ui/Card';
 import { BoosterClinicoButton, BoosterClinicoCard } from './BoosterClinico';
+import { ConsultaBasicaButton } from './ConsultaBasicaButton';
 import { optimizarPreguntaClinica } from '../services/doctorIaService';
 import { marked } from 'marked';
 import { Chat } from '@google/genai';
@@ -21,6 +22,7 @@ const ChatBot: React.FC = () => {
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isOptimizingBooster, setIsOptimizingBooster] = useState(false);
+    const [isSendingBasica, setIsSendingBasica] = useState(false);
     const [boosterResult, setBoosterResult] = useState<BoosterClinicoResult | null>(null);
     const [boosterOriginalText, setBoosterOriginalText] = useState('');
     const [boosterError, setBoosterError] = useState<string | null>(null);
@@ -87,11 +89,26 @@ const ChatBot: React.FC = () => {
         void handleSend(text);
     };
 
+    const handleSendBasica = async () => {
+        const currentPrompt = input.trim();
+        if (!currentPrompt || isLoading || isSendingBasica) return;
+
+        setBoosterResult(null);
+        setBoosterError(null);
+        setIsSendingBasica(true);
+        try {
+            await handleSend(currentPrompt, { mode: 'basica' });
+        } finally {
+            setIsSendingBasica(false);
+        }
+    };
+
     const startNewChat = () => {
         setChat(createChat());
         setMessages([{ role: 'model', text: '¡Hola! Soy tu asistente de IA. ¿En qué puedo ayudarte hoy?' }]);
         setInput('');
         setIsLoading(false);
+        setIsSendingBasica(false);
         setBoosterResult(null);
         setBoosterError(null);
     };
@@ -152,7 +169,7 @@ const ChatBot: React.FC = () => {
         };
     }, [setMessages]);
 
-    const handleSend = async (textToSend?: string | unknown) => {
+    const handleSend = async (textToSend?: string | unknown, options?: { mode?: 'basica' | 'normal' }) => {
         const messageToSend = (typeof textToSend === 'string' ? textToSend : input).trim();
         if (!messageToSend) return;
 
@@ -163,23 +180,32 @@ const ChatBot: React.FC = () => {
         }
 
         const question = messageToSend;
-        const userMessage: ChatMessage = { role: 'user', text: question };
+        const isBasica = options?.mode === 'basica';
+        const userMessage: ChatMessage = { 
+            role: 'user', 
+            text: question,
+            mode: isBasica ? 'basica' : 'normal'
+        };
         setMessages(prev => [...prev, userMessage, { role: 'model', text: '' }]);
         setInput('');
         setIsLoading(true);
         isUserScrollingRef.current = false;
         setShowScrollBottom(false);
 
+        const promptForGemini = isBasica
+            ? `[CONSULTA BÁSICA: Responde directo y al grano limitándote estrictamente a lo que se pregunta como cualquier modelo de lenguaje general, con claridad pedagógica y amabilidad, sin sermones, sin exigir variables semiológicas ni forzar el uso del booster]: ${question}`
+            : question;
+
         try {
             // Send message to Gemini with active session and fallback
             let result;
             try {
-                result = await activeChat.sendMessageStream({ message: question });
+                result = await activeChat.sendMessageStream({ message: promptForGemini });
             } catch (initialErr) {
                 console.warn("[DoctorIA] Intento inicial en chat falló, reintentando con sesión fresca:", initialErr);
                 activeChat = createChat();
                 setChat(activeChat);
-                result = await activeChat.sendMessageStream({ message: question });
+                result = await activeChat.sendMessageStream({ message: promptForGemini });
             }
 
             let text = '';
@@ -221,14 +247,19 @@ const ChatBot: React.FC = () => {
     
     return (
         <Card className="max-w-3xl mx-auto flex flex-col h-[85vh] sm:h-[88vh] !p-3.5 sm:!p-5 overflow-hidden">
-            {/* Encabezado con Booster Clínico a la izquierda, Título centrado y Reiniciar a la derecha */}
-            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 mb-3 border-b pb-2.5 dark:border-slate-700 shrink-0">
-                {/* Lado Izquierdo: Botón Booster Clínico con Tooltip Completo al pasar el cursor */}
-                <div className="flex items-center justify-start">
+            {/* Encabezado con Booster Clínico y Consulta Básica a la izquierda, Título centrado y Reiniciar a la derecha */}
+            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1.5 sm:gap-2 mb-3 border-b pb-2.5 dark:border-slate-700 shrink-0">
+                {/* Lado Izquierdo: Botón Booster Clínico y Botón Consulta Básica con Tooltips al pasar el cursor */}
+                <div className="flex items-center justify-start gap-1.5 sm:gap-2">
                     <BoosterClinicoButton
                         onClick={handleOptimizeBooster}
                         disabled={!input.trim() || isLoading}
                         isOptimizing={isOptimizingBooster}
+                    />
+                    <ConsultaBasicaButton
+                        onClick={handleSendBasica}
+                        disabled={!input.trim() || isLoading}
+                        isLoading={isSendingBasica}
                     />
                 </div>
 
@@ -265,6 +296,13 @@ const ChatBot: React.FC = () => {
                 {messages.map((msg, index) => (
                     <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-xl sm:max-w-2xl p-3 sm:p-3.5 rounded-2xl ${msg.role === 'user' ? 'bg-blue-500 text-white rounded-br-none' : 'bg-gray-200 dark:bg-slate-700 text-gray-800 dark:text-gray-200 rounded-bl-none'}`}>
+                           {msg.role === 'user' && msg.mode === 'basica' && (
+                                <div className="flex items-center gap-1 mb-1.5">
+                                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-white/20 text-white border border-white/30 inline-flex items-center gap-1 backdrop-blur-xs select-none">
+                                        <span>💡</span> Consulta básica
+                                    </span>
+                                </div>
+                           )}
                            {msg.role === 'model' && msg.text === '' ? (
                                 <div className="flex items-center space-x-2">
                                     <div className="w-2 h-2 rounded-full bg-gray-400 animate-pulse"></div>
@@ -274,7 +312,7 @@ const ChatBot: React.FC = () => {
                            ) : (
                                 <>
                                     <div className="prose prose-sm dark:prose-invert max-w-none leading-relaxed" dangerouslySetInnerHTML={{ __html: marked.parse(cleanMedicalMarkdown(msg.text)) }}></div>
-                                    {msg.role === 'model' && msg.text.toLowerCase().includes('booster') && index > 0 && messages[index - 1]?.role === 'user' && (
+                                    {msg.role === 'model' && msg.text.toLowerCase().includes('booster') && index > 0 && messages[index - 1]?.role === 'user' && messages[index - 1]?.mode !== 'basica' && (
                                         <div className="mt-3 pt-2.5 border-t border-slate-300 dark:border-slate-600 flex items-center justify-between gap-2 flex-wrap">
                                             <span className="text-xs text-slate-600 dark:text-slate-300 font-medium">
                                                 ¿Quieres reformular esta duda con rigor médico?
