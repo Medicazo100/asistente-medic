@@ -19,17 +19,12 @@ const App: React.FC = () => {
     // Persist active section to allow restoration after refresh/close
     const [activeSection, setActiveSection] = useLocalStorage<Section>('app_activeSection', Section.Welcome);
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-    const [showBoosterAnnouncement, setShowBoosterAnnouncement] = useState(() => {
-        try {
-            return !localStorage.getItem('aiclinic_booster_seen_v1');
-        } catch {
-            return false;
-        }
-    });
+    // Mostrar de forma predeterminada el anuncio del Booster Clínico en cada recarga de página
+    const [showBoosterAnnouncement, setShowBoosterAnnouncement] = useState(true);
 
     const handleExploreBooster = () => {
         try {
-            localStorage.setItem('aiclinic_booster_seen_v1', 'true');
+            localStorage.removeItem('aiclinic_booster_seen_v1');
         } catch {}
         setShowBoosterAnnouncement(false);
         setActiveSection(Section.ChatBot);
@@ -37,7 +32,7 @@ const App: React.FC = () => {
 
     const handleCloseBoosterAnnouncement = () => {
         try {
-            localStorage.setItem('aiclinic_booster_seen_v1', 'true');
+            localStorage.removeItem('aiclinic_booster_seen_v1');
         } catch {}
         setShowBoosterAnnouncement(false);
     };
