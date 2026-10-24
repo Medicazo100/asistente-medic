@@ -281,14 +281,14 @@ const ChatBot: React.FC = () => {
                     </p>
                 </div>
 
-                {/* Lado Derecho: Botón Reiniciar en el costado opuesto para evitar presiones accidentales */}
+                {/* Lado Derecho: Botón Reiniciar con color y contraste en armonía estética */}
                 <div className="flex items-center justify-end">
                     <button
                         onClick={startNewChat}
                         title="Reiniciar conversación y comenzar nuevo caso"
-                        className="text-xs font-bold py-1.5 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border bg-white hover:bg-sky-50 text-slate-700 hover:text-sky-800 border-slate-300 hover:border-sky-400 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-cyan-300 dark:border-cyan-500/60 dark:hover:border-cyan-400 cursor-pointer"
+                        className="text-xs font-bold py-1.5 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border-2 select-none cursor-pointer bg-gradient-to-r from-rose-500 via-rose-600 to-red-600 hover:from-rose-600 hover:via-rose-700 hover:to-red-700 active:from-rose-700 active:to-red-800 text-white border-rose-900/90 dark:border-rose-400 dark:bg-gradient-to-r dark:from-rose-600 dark:via-pink-600 dark:to-rose-600 shadow-rose-500/25 hover:shadow-md"
                     >
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5 text-white">
                             <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 0 1-9.201 2.466l-.312-.311h2.433a.75.75 0 0 0 0-1.5H3.75a.75.75 0 0 0-.75.75v4.482a.75.75 0 0 0 1.5 0v-2.05l.435.435a7 7 0 1 0 1.942-8.91.75.75 0 0 0-.966 1.144 5.5 5.5 0 0 1 9.391 3.494Z" clipRule="evenodd" />
                         </svg>
                         <span className="hidden sm:inline">Reiniciar</span>
