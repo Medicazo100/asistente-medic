@@ -12,16 +12,16 @@ export const ConsultaBasicaButton: React.FC<ConsultaBasicaButtonProps> = ({
     isLoading = false,
 }) => {
     return (
-        <div className="relative group inline-block">
+        <div className="relative group w-full">
             <button
                 type="button"
                 onClick={onClick}
                 disabled={disabled || isLoading}
                 title="Consulta Básica: Responde directamente a tu duda como cualquier modelo de lenguaje, limitándose solo a lo que preguntas y sin protocolos forzados."
-                className={`text-xs font-bold py-1.5 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border select-none ${
+                className={`text-xs font-bold py-1 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center justify-start gap-1.5 shadow-sm border-2 select-none w-full min-w-[134px] sm:min-w-[146px] border-teal-900/90 dark:border-emerald-400 text-white ${
                     disabled || isLoading
-                        ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-70'
-                        : 'bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 active:from-emerald-700 active:to-teal-800 text-white border-transparent shadow-emerald-500/20 hover:shadow-md cursor-pointer'
+                        ? 'bg-gradient-to-r from-emerald-600/90 to-teal-700/90 dark:from-emerald-700/90 dark:to-teal-800/90 cursor-not-allowed opacity-85'
+                        : 'bg-gradient-to-r from-emerald-500 via-teal-600 to-teal-700 hover:from-emerald-600 hover:via-teal-700 hover:to-teal-800 active:from-emerald-700 active:to-teal-900 shadow-teal-500/25 hover:shadow-md cursor-pointer'
                 }`}
             >
                 {isLoading ? (

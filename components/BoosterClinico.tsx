@@ -13,16 +13,16 @@ export const BoosterClinicoButton: React.FC<BoosterClinicoButtonProps> = ({
     isOptimizing = false,
 }) => {
     return (
-        <div className="relative group inline-block">
+        <div className="relative group w-full">
             <button
                 type="button"
                 onClick={onClick}
                 disabled={disabled || isOptimizing}
                 title="Consejo Pro: Escribe tu duda médica aquí abajo y pulsa ⚡ Booster Clínico: la convertiremos en una pregunta profesional con rigor de pase de visita para darte dosis exactas y perlas clínicas (¡Solo para internos pros! 🩺🔥)."
-                className={`text-xs font-bold py-1.5 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center gap-1.5 shadow-sm border select-none ${
+                className={`text-xs font-bold py-1 px-2.5 sm:px-3 rounded-lg transition-all duration-200 flex items-center justify-start gap-1.5 shadow-sm border-2 select-none w-full min-w-[134px] sm:min-w-[146px] border-indigo-900/90 dark:border-cyan-400 text-white ${
                     disabled || isOptimizing
-                        ? 'bg-slate-100 dark:bg-slate-800/80 text-slate-400 dark:text-slate-500 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-70'
-                        : 'bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-600 hover:to-indigo-700 active:from-sky-700 active:to-indigo-800 text-white border-transparent shadow-sky-500/20 hover:shadow-md cursor-pointer'
+                        ? 'bg-gradient-to-r from-sky-600/90 to-indigo-700/90 dark:from-sky-700/90 dark:to-indigo-800/90 cursor-not-allowed opacity-85'
+                        : 'bg-gradient-to-r from-sky-500 via-indigo-600 to-indigo-700 hover:from-sky-600 hover:via-indigo-700 hover:to-indigo-800 active:from-sky-700 active:to-indigo-900 shadow-indigo-500/25 hover:shadow-md cursor-pointer'
                 }`}
             >
                 {isOptimizing ? (

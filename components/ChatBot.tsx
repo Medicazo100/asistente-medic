@@ -50,7 +50,11 @@ const ChatBot: React.FC = () => {
 
     const handleOptimizeBooster = async () => {
         const currentPrompt = input.trim();
-        if (!currentPrompt || isOptimizingBooster || isLoading) return;
+        if (!currentPrompt) {
+            textareaRef.current?.focus();
+            return;
+        }
+        if (isOptimizingBooster || isLoading) return;
 
         setIsOptimizingBooster(true);
         setBoosterError(null);
@@ -91,7 +95,11 @@ const ChatBot: React.FC = () => {
 
     const handleSendBasica = async () => {
         const currentPrompt = input.trim();
-        if (!currentPrompt || isLoading || isSendingBasica) return;
+        if (!currentPrompt) {
+            textareaRef.current?.focus();
+            return;
+        }
+        if (isLoading || isSendingBasica) return;
 
         setBoosterResult(null);
         setBoosterError(null);
@@ -247,23 +255,23 @@ const ChatBot: React.FC = () => {
     
     return (
         <Card className="max-w-3xl mx-auto flex flex-col h-[85vh] sm:h-[88vh] !p-3.5 sm:!p-5 overflow-hidden">
-            {/* Encabezado con Booster Clínico y Consulta Básica a la izquierda, Título centrado y Reiniciar a la derecha */}
-            <div className="grid grid-cols-[auto_1fr_auto] items-center gap-1.5 sm:gap-2 mb-3 border-b pb-2.5 dark:border-slate-700 shrink-0">
-                {/* Lado Izquierdo: Botón Booster Clínico y Botón Consulta Básica con Tooltips al pasar el cursor */}
-                <div className="flex items-center justify-start gap-1.5 sm:gap-2">
+            {/* Encabezado con Booster Clínico y Consulta Básica apilados a la izquierda, Título centrado y Reiniciar a la derecha */}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 mb-3 border-b pb-2.5 dark:border-slate-700 shrink-0">
+                {/* Lado Izquierdo: Botones apilados verticalmente con alto contraste y bordes definidos */}
+                <div className="flex flex-col items-start justify-center gap-1 sm:gap-1.5">
                     <BoosterClinicoButton
                         onClick={handleOptimizeBooster}
-                        disabled={!input.trim() || isLoading}
+                        disabled={isLoading || isOptimizingBooster}
                         isOptimizing={isOptimizingBooster}
                     />
                     <ConsultaBasicaButton
                         onClick={handleSendBasica}
-                        disabled={!input.trim() || isLoading}
+                        disabled={isLoading || isSendingBasica}
                         isLoading={isSendingBasica}
                     />
                 </div>
 
-                {/* Centro: Título DoctorIA y leyenda inferior centrada */}
+                {/* Centro: Título DoctorIA y leyenda inferior perfectamente centrada */}
                 <div className="flex flex-col items-center justify-center text-center px-1">
                     <h2 className="text-xl sm:text-2xl font-bold text-blue-800 dark:text-cyan-300 leading-tight">
                         💬 DoctorIA
